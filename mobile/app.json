@@ -7,7 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "khana-delivery",
     "userInterfaceStyle": "automatic",
-    "ios": {},
+    "ios": {
+      "bundleIdentifier": "com.digimess.rider"
+    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000",
@@ -16,7 +18,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "pan"
+      "softwareKeyboardLayoutMode": "pan",
+      "package": "com.digimess.rider"
     },
     "web": {
       "output": "static",
@@ -38,6 +41,12 @@
     "experiments": {
       "typedRoutes": false,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5f6a61b8-5400-4fca-870b-c80940426f80"
+      }
     }
   }
 }
