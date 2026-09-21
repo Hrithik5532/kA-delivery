@@ -1,0 +1,24 @@
+# --- Python / backend ---
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/*.db
+backend/.env
+backend/uploads/
+.pytest_cache/
+
+# --- Node / mobile ---
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/.env
+npm-debug.*
+
+# --- Admin dashboard ---
+admin/node_modules/
+admin/dist/
+admin/.env
+
+# --- Editor / OS ---
+.DS_Store
