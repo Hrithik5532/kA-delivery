@@ -15,6 +15,8 @@ os.environ["LOCATION_MAX_JUMP_METERS"] = "2000"
 os.environ["LOCATION_STALE_SECONDS"] = "30"
 os.environ["SEED_ACTIVE_DELIVERY"] = "false"
 os.environ["SEED_PICKUP_DELIVERY"] = "false"
+os.environ["AUTO_MIGRATE_ON_STARTUP"] = "false"
+os.environ["AUTO_SEED_ON_STARTUP"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

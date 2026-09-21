@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     # --- Database ---
     database_url: str = "sqlite:///./digimess.db"
+    auto_migrate_on_startup: bool = True
+    auto_seed_on_startup: bool = True
 
     # --- Auth / JWT ---
     jwt_secret: str = "dev-secret-change-me"

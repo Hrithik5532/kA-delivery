@@ -30,6 +30,9 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.db_init import init_database
+
+    init_database()
     manager.set_loop(asyncio.get_running_loop())
     yield
 

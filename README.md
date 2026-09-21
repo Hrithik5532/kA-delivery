@@ -51,9 +51,9 @@ cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env               # adjust secrets for anything non-local
-alembic upgrade head               # create the SQLite schema
-python -m app.seed                 # demo accounts + a mess menu
 uvicorn app.main:app --reload      # http://localhost:8000  (docs at /docs)
+# On first start the API auto-migrates and seeds an empty DB.
+# Manual alternative: alembic upgrade head && python -m app.seed
 ```
 
 Run the tests:
