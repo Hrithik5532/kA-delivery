@@ -7,6 +7,7 @@ export function GoogleDeliveryMap(_props: {
   route: LatLng[];
   markers: NativeMapMarker[];
   style?: StyleProp<ViewStyle>;
+  onMapReady?: (fit: () => void) => void;
 }) {
   return null;
 }

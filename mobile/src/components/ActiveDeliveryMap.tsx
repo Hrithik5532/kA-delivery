@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { TrackerMarker } from '@/components/DeliveryTrackerMap';
 import { DeliveryMapLayer } from '@/components/DeliveryMapLayer';
+import { OsmTileBackground, projectPointInBounds } from '@/components/OsmTileBackground';
 import { config, hasMapCredentials } from '@/config';
 import { boundsFor, staticMapUrl, type LatLng } from '@/lib/map-route';
 import { colors, radius, shadow, spacing } from '@/theme';
@@ -18,11 +19,7 @@ const PIN_COLORS: Record<TrackerMarker['kind'], string> = {
 };
 
 function projectPoint(point: LatLng, bounds: ReturnType<typeof boundsFor>, width: number, height: number) {
-  const latRange = bounds.maxLat - bounds.minLat || 1;
-  const lngRange = bounds.maxLng - bounds.minLng || 1;
-  const x = ((point.lng - bounds.minLng) / lngRange) * (width * 0.84) + width * 0.08;
-  const y = (1 - (point.lat - bounds.minLat) / latRange) * (height * 0.78) + height * 0.1;
-  return { x, y };
+  return projectPointInBounds(point, bounds, width, height);
 }
 
 function RouteSegment({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
@@ -62,7 +59,7 @@ function StaticDeliveryMap({
   bounds: ReturnType<typeof boundsFor>;
 }) {
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [mapFailed, setMapFailed] = useState(false);
+  const [mapFailed, setMapFailed] = useState(Platform.OS === 'web');
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const startX = useSharedValue(0);
@@ -101,10 +98,10 @@ function StaticDeliveryMap({
           setSize({ width, height });
         }}
       >
-        {!mapFailed ? (
-          <Image source={{ uri: mapUrl }} style={StyleSheet.absoluteFill} contentFit="cover" onError={() => setMapFailed(true)} />
+        {mapFailed ? (
+          <OsmTileBackground bounds={bounds} width={size.width} height={size.height} />
         ) : (
-          <View style={styles.fallbackBg} />
+          <Image source={{ uri: mapUrl }} style={StyleSheet.absoluteFill} contentFit="cover" onError={() => setMapFailed(true)} />
         )}
         <View style={styles.tint} pointerEvents="none" />
         {projectedRoute.slice(0, -1).map((p, i) => {

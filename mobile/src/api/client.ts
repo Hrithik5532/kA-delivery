@@ -196,6 +196,15 @@ export const api = {
     if (!resp.ok) throw new ApiError(resp.status, extractDetail(data) ?? `Request failed (${resp.status})`);
     return data as SupportTicket;
   },
+  directions: (originLat: number, originLng: number, destLat: number, destLng: number) =>
+    request<{
+      points: Array<{ lat: number; lng: number }>;
+      distance_meters: number | null;
+      duration_seconds: number | null;
+      source: string;
+    }>(
+      `/maps/directions?origin_lat=${originLat}&origin_lng=${originLng}&dest_lat=${destLat}&dest_lng=${destLng}&travel_mode=TWO_WHEELER`,
+    ),
   postLocation: (body: {
     lat: number;
     lng: number;

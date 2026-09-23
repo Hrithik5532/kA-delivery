@@ -12,19 +12,10 @@ import { Loading } from '@/components/Loading';
 import { PartnerCard } from '@/components/partner';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
-import { buildRiderRoute } from '@/lib/map-route';
+import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
+import { useRiderPosition } from '@/hooks/useRiderPosition';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, estimateDeliveryMins, money, spacing } from '@/theme';
-
-function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
 
 export default function DeliveryRequest() {
   const { offerId } = useLocalSearchParams<{ offerId: string }>();
@@ -52,26 +43,30 @@ export default function DeliveryRequest() {
   const messPoint = offer?.mess_lat != null && offer?.mess_lng != null
     ? { lat: offer.mess_lat, lng: offer.mess_lng }
     : null;
-  const dropPoint = firstStop
-    ? { lat: firstStop.address_lat, lng: firstStop.address_lng }
-    : null;
+  const riderPoint = useRiderPosition();
+  const routeOrigin = useMemo(() => {
+    if (riderPoint) return riderPoint;
+    if (!messPoint) return null;
+    return { lat: messPoint.lat - 0.012, lng: messPoint.lng - 0.008 };
+  }, [riderPoint, messPoint]);
 
-  const pickupKm = offer?.pickup_distance_km ?? (messPoint && dropPoint ? haversineKm(messPoint, dropPoint) : null);
+  const { route, distanceKm: directionsPickupKm } = useDirectionsRoute(routeOrigin, messPoint);
+
+  const pickupKm = directionsPickupKm ?? offer?.pickup_distance_km ?? null;
   const totalKm = offer?.total_distance_km ?? (pickupKm != null ? pickupKm * 1.2 : null);
   const dropKm = offer?.drop_distance_km ?? pickupKm;
   const eta = estimateDeliveryMins(totalKm);
 
-  const route = useMemo(() => {
-    if (!messPoint || !dropPoint) return [];
-    return buildRiderRoute(messPoint, dropPoint, 'pickup');
-  }, [messPoint, dropPoint]);
-
   const markers: TrackerMarker[] = useMemo(() => {
     const list: TrackerMarker[] = [];
-    if (messPoint && offer?.mess_name) list.push({ lat: messPoint.lat, lng: messPoint.lng, label: offer.mess_name, kind: 'mess' });
-    if (dropPoint && firstStop) list.push({ lat: dropPoint.lat, lng: dropPoint.lng, label: firstStop.customer_name, kind: 'dropoff' });
+    if (routeOrigin && riderPoint) {
+      list.push({ lat: routeOrigin.lat, lng: routeOrigin.lng, label: 'You', kind: 'rider' });
+    }
+    if (messPoint && offer?.mess_name) {
+      list.push({ lat: messPoint.lat, lng: messPoint.lng, label: offer.mess_name, kind: 'mess' });
+    }
     return list;
-  }, [messPoint, dropPoint, offer, firstStop]);
+  }, [messPoint, offer, routeOrigin, riderPoint]);
 
   const summary = offer?.order_summary;
   const items = firstStop?.items ?? [];
@@ -144,7 +139,12 @@ export default function DeliveryRequest() {
 
         <PartnerCard variant="lowest" style={styles.routeCard}>
           <View style={styles.mapWrap}>
-            <DeliveryTrackerMap markers={markers} route={route} height={144} badgeLabel={totalKm != null ? `${totalKm.toFixed(1)} km total` : 'ROUTE'} />
+            <DeliveryTrackerMap
+              markers={markers}
+              route={route}
+              height={144}
+              badgeLabel={pickupKm != null ? `${pickupKm.toFixed(1)} km to pickup` : 'TO PICKUP'}
+            />
           </View>
 
           <View style={styles.timeline}>

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     # --- Maps ---
     map_provider: str = "none"
+    google_maps_api_key: str = ""
 
     # --- Document uploads (partner verification) ---
     upload_dir: str = "./uploads"

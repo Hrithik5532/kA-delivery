@@ -42,13 +42,91 @@ export function buildRiderRoute(mess: LatLng, dropoff: LatLng, phase: 'pickup' |
   return [enRoute, ...interpolateRoute(enRoute, dropoff, 5), dropoff];
 }
 
-export function staticOsmMapUrl(points: LatLng[], width = 720, height = 520): string {
+export function pickOsmZoom(bounds: ReturnType<typeof boundsFor>): number {
+  const span = Math.max(bounds.maxLat - bounds.minLat, bounds.maxLng - bounds.minLng);
+  if (span > 0.8) return 8;
+  if (span > 0.3) return 9;
+  if (span > 0.08) return 11;
+  if (span > 0.04) return 12;
+  if (span > 0.02) return 13;
+  return 14;
+}
+
+export function latLngToTile(lat: number, lng: number, zoom: number) {
+  const n = 2 ** zoom;
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
+  );
+  return { x, y };
+}
+
+export function tileNorthWestLatLng(x: number, y: number, zoom: number): LatLng {
+  const n = 2 ** zoom;
+  const lng = (x / n) * 360 - 180;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  return { lat, lng };
+}
+
+export function tileSouthEastLatLng(x: number, y: number, zoom: number): LatLng {
+  const n = 2 ** zoom;
+  const lng = ((x + 1) / n) * 360 - 180;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n))) * 180) / Math.PI;
+  return { lat, lng };
+}
+
+export interface OsmTile {
+  x: number;
+  y: number;
+  zoom: number;
+  url: string;
+}
+
+export function osmTilesForBounds(bounds: ReturnType<typeof boundsFor>, zoom: number): OsmTile[] {
+  const topLeft = latLngToTile(bounds.maxLat, bounds.minLng, zoom);
+  const bottomRight = latLngToTile(bounds.minLat, bounds.maxLng, zoom);
+  const tiles: OsmTile[] = [];
+  for (let x = topLeft.x; x <= bottomRight.x; x++) {
+    for (let y = topLeft.y; y <= bottomRight.y; y++) {
+      tiles.push({
+        x,
+        y,
+        zoom,
+        url: `https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`,
+      });
+    }
+  }
+  return tiles;
+}
+
+/** Interactive OSM embed for web (staticmap.openstreetmap.de is often unreachable). */
+export function osmEmbedUrl(points: LatLng[]): string {
+  const pts = points.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+  if (!pts.length) return 'https://www.openstreetmap.org/export/embed.html?layer=mapnik';
+
+  const b = boundsFor(pts);
+  const bbox = `${b.minLng},${b.minLat},${b.maxLng},${b.maxLat}`;
+  const markers = pts
+    .slice(0, 5)
+    .map((p) => `marker=${encodeURIComponent(`${p.lat},${p.lng}`)}`)
+    .join('&');
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&${markers}`;
+}
+
+export function staticOsmMapUrl(points: LatLng[], _width = 720, _height = 520): string {
   const b = boundsFor(points);
   const centerLat = (b.minLat + b.maxLat) / 2;
   const centerLng = (b.minLng + b.maxLng) / 2;
   const span = Math.max(b.maxLat - b.minLat, b.maxLng - b.minLng);
   const zoom = span > 0.8 ? 8 : span > 0.3 ? 9 : span > 0.08 ? 11 : span > 0.04 ? 12 : span > 0.02 ? 13 : 14;
-  return `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLng}&zoom=${zoom}&size=${width}x${height}&maptype=mapnik`;
+  const latRad = (centerLat * Math.PI) / 180;
+  const n = 2 ** zoom;
+  const x = Math.floor(((centerLng + 180) / 360) * n);
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
+  );
+  return `https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`;
 }
 
 function uniquePoints(points: LatLng[]) {

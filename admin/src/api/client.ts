@@ -160,6 +160,15 @@ export const api = {
 
   // Test-order tool
   testOrders: () => request<Page<TestDelivery>>('/admin/test-orders?limit=200'),
+  placeAutocomplete: (input: string) =>
+    request<Array<{ place_id: string; label: string; secondary?: string | null }>>(
+      '/admin/maps/places/autocomplete',
+      { method: 'POST', body: { input } },
+    ),
+  placeDetails: (placeId: string) =>
+    request<{ lat: number; lng: number; label: string; address: string }>(
+      `/admin/maps/places/${encodeURIComponent(placeId)}`,
+    ),
   createTestOrder: (body: Record<string, unknown>) =>
     request<TestDelivery>('/admin/test-orders', { method: 'POST', body }),
   advanceTestOrder: (orderId: number, to: string) =>

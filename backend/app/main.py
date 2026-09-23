@@ -15,6 +15,7 @@ from app.api.v1 import (
     admin,
     auth,
     deliveries,
+    maps,
     mess_ops,
     messes,
     orders,
@@ -56,6 +57,7 @@ app.add_middleware(
 api = APIRouter(prefix="/api/v1")
 api.include_router(auth.router)
 api.include_router(rider.router)
+api.include_router(maps.router)
 api.include_router(deliveries.router)
 api.include_router(messes.router)
 api.include_router(addresses.router)

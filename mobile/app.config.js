@@ -11,8 +11,18 @@ module.exports = () => {
     expo: {
       ...appJson.expo,
 
-      // EAS configuration
       owner: 'hrithik7378',
+
+      plugins: [
+        ...(appJson.expo.plugins ?? []),
+        [
+          'react-native-maps',
+          {
+            androidGoogleMapsApiKey: mapApiKey,
+            iosGoogleMapsApiKey: mapApiKey,
+          },
+        ],
+      ],
 
       extra: {
         ...(appJson.expo.extra ?? {}),
@@ -25,23 +35,17 @@ module.exports = () => {
       android: {
         ...appJson.expo.android,
         package: 'com.digimess.rider',
-
         config: {
           ...(appJson.expo.android?.config ?? {}),
-
-          googleMaps: {
-            apiKey: mapApiKey,
-          },
+          googleMaps: { apiKey: mapApiKey },
         },
       },
 
       ios: {
         ...appJson.expo.ios,
         bundleIdentifier: 'com.digimess.rider',
-
         config: {
           ...(appJson.expo.ios?.config ?? {}),
-
           googleMapsApiKey: mapApiKey,
         },
       },

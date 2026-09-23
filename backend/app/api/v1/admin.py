@@ -30,6 +30,7 @@ from app.models.enums import (
 )
 from app.models.mess import Mess
 from app.models.order import Order
+from app.schemas.maps import PlaceAutocompleteIn, PlaceDetailsOut, PlaceSuggestionOut
 from app.schemas.admin import (
     FleetLeaderOut,
     ActiveDeliveryOut,
@@ -59,6 +60,7 @@ from app.schemas.admin import (
 from app.schemas.partner import DeliveryIssueOut, RiderDocumentOut
 from app.services import (
     audit_service,
+    maps_service,
     wallet_service,
     document_service,
     test_order_service,
@@ -210,6 +212,31 @@ def request_correction(
     verification_service.request_correction(db, rider_id, admin.id, data.reason)
     db.commit()
     return application_detail(rider_id, admin, db)
+
+
+
+@router.post("/maps/places/autocomplete", response_model=list[PlaceSuggestionOut])
+def places_autocomplete(
+    data: PlaceAutocompleteIn,
+    _: User = Depends(_ops),
+) -> list[PlaceSuggestionOut]:
+    """Proxy Google Places autocomplete through the backend (avoids browser referrer restrictions)."""
+    try:
+        rows = maps_service.search_places(data.input)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return [PlaceSuggestionOut(place_id=r["place_id"], label=r["label"], secondary=r.get("secondary")) for r in rows]
+
+
+@router.get("/maps/places/{place_id}", response_model=PlaceDetailsOut)
+def places_details(
+    place_id: str,
+    _: User = Depends(_ops),
+) -> PlaceDetailsOut:
+    details = maps_service.get_place_details(place_id)
+    if details is None:
+        raise HTTPException(status_code=502, detail="Could not load place details")
+    return PlaceDetailsOut(**details)
 
 
 # --- Admin-only test-order tool ------------------------------------------

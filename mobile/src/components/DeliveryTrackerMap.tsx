@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, View } from 'react-native';
+import { LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native';
 import { DeliveryMapLayer } from '@/components/DeliveryMapLayer';
+import { OsmTileBackground, projectPointInBounds } from '@/components/OsmTileBackground';
 import { config, hasMapCredentials } from '@/config';
-import { boundsFor, staticMapUrl, type LatLng } from '@/lib/map-route';
+import { boundsFor, staticGoogleMapUrl, staticMapUrl, type LatLng } from '@/lib/map-route';
 import { colors, radius, shadow, spacing } from '@/theme';
 import { Text } from './ui/Text';
 
@@ -33,13 +34,9 @@ function projectPoint(
   point: LatLng,
   bounds: ReturnType<typeof boundsFor>,
   width: number,
-  height: number
+  height: number,
 ) {
-  const latRange = bounds.maxLat - bounds.minLat || 1;
-  const lngRange = bounds.maxLng - bounds.minLng || 1;
-  const x = ((point.lng - bounds.minLng) / lngRange) * (width * 0.84) + width * 0.08;
-  const y = (1 - (point.lat - bounds.minLat) / latRange) * (height * 0.78) + height * 0.1;
-  return { x, y };
+  return projectPointInBounds(point, bounds, width, height);
 }
 
 function RouteSegment({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
@@ -86,7 +83,18 @@ function StaticTrackerMap({
   onLayout: (e: LayoutChangeEvent) => void;
 }) {
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [mapFailed, setMapFailed] = useState(false);
+  const [mapFailed, setMapFailed] = useState(Platform.OS === 'web');
+  const googleMapUrl = useMemo(
+    () => staticGoogleMapUrl(
+      [...route, ...markers.map((m) => ({ lat: m.lat, lng: m.lng }))],
+      Math.max(size.width, 720),
+      Math.max(size.height, height),
+      config.mapApiKey,
+      route,
+    ),
+    [route, markers, size.width, size.height, height],
+  );
+  const backgroundUrl = googleMapUrl ?? mapUrl;
 
   const projectedRoute = useMemo(() => {
     if (!size.width) return [] as { x: number; y: number }[];
@@ -107,19 +115,15 @@ function StaticTrackerMap({
       setSize({ width, height: h });
       onLayout(e);
     }}>
-      {!mapFailed ? (
+      {mapFailed ? (
+        <OsmTileBackground bounds={bounds} width={size.width} height={size.height} />
+      ) : (
         <Image
-          source={{ uri: mapUrl }}
+          source={{ uri: backgroundUrl }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           onError={() => setMapFailed(true)}
         />
-      ) : (
-        <View style={styles.fallbackBg}>
-          <View style={styles.gridRow} />
-          <View style={[styles.gridRow, { marginTop: 28 }]} />
-          <View style={[styles.gridRow, { marginTop: 28 }]} />
-        </View>
       )}
 
       <View style={styles.tint} pointerEvents="none" />
@@ -169,11 +173,11 @@ export function DeliveryTrackerMap({
 
   const noopLayout = (_e: LayoutChangeEvent) => {};
 
-  const useGoogleMap = hasMapCredentials;
+  const useInteractiveMap = hasMapCredentials;
 
   return (
     <View style={[styles.wrap, { height }, style]}>
-      {useGoogleMap ? (
+      {useInteractiveMap ? (
         <DeliveryMapLayer route={route} markers={nativeMarkers} style={{ height }} />
       ) : (
         <StaticTrackerMap
@@ -186,7 +190,7 @@ export function DeliveryTrackerMap({
         />
       )}
 
-      <View style={styles.badge}>
+      <View style={styles.badge} pointerEvents="none">
         <Text variant="caption" style={styles.badgeText}>{badgeLabel}</Text>
       </View>
     </View>

@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
-import { buildRiderRoute } from '@/lib/map-route';
+import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, radius, spacing } from '@/theme';
 
@@ -72,14 +72,13 @@ export default function OrderPickup() {
     return { lat: detail.rider_lat, lng: detail.rider_lng };
   }, [detail]);
 
-  const route = useMemo(() => {
-    if (!messPoint) return [];
-    const start = riderPoint ?? {
-      lat: messPoint.lat - 0.012,
-      lng: messPoint.lng - 0.008,
-    };
-    return buildRiderRoute(start, messPoint, 'pickup');
+  const routeOrigin = useMemo(() => {
+    if (riderPoint) return riderPoint;
+    if (!messPoint) return null;
+    return { lat: messPoint.lat - 0.012, lng: messPoint.lng - 0.008 };
   }, [messPoint, riderPoint]);
+
+  const { route } = useDirectionsRoute(routeOrigin, messPoint);
 
   const markers: TrackerMarker[] = useMemo(() => {
     if (!detail || !messPoint) return [];

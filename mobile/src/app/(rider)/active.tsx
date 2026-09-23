@@ -15,7 +15,8 @@ import { PartnerCard } from '@/components/partner';
 import { Button } from '@/components/ui/Button';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
-import { buildRiderRoute } from '@/lib/map-route';
+import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
+import { useRiderPosition } from '@/hooks/useRiderPosition';
 import { useRiderLocationBroadcast } from '@/lib/rider-location';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, spacing } from '@/theme';
@@ -67,24 +68,33 @@ export default function ActiveDelivery() {
     () => (nextStop ? { lat: nextStop.address_lat, lng: nextStop.address_lng } : null),
     [nextStop],
   );
+  const liveRiderPosition = useRiderPosition();
 
-  const route = useMemo(() => {
-    if (!messPoint || !dropPoint) return [];
-    return buildRiderRoute(messPoint, dropPoint, isDelivering ? 'delivering' : 'pickup');
-  }, [messPoint, dropPoint, isDelivering]);
+  const riderPoint = useMemo(() => {
+    if (active?.rider_lat != null && active?.rider_lng != null) {
+      return { lat: active.rider_lat, lng: active.rider_lng };
+    }
+    return liveRiderPosition;
+  }, [active?.rider_lat, active?.rider_lng, liveRiderPosition]);
+
+  const routeOrigin = useMemo(() => {
+    if (riderPoint) return riderPoint;
+    if (isDelivering && messPoint) return messPoint;
+    return null;
+  }, [riderPoint, isDelivering, messPoint]);
+
+  const { route } = useDirectionsRoute(routeOrigin, dropPoint, !!routeOrigin && !!dropPoint);
 
   const markers: TrackerMarker[] = useMemo(() => {
     if (!batch || !dropPoint || !nextStop) return [];
     const list: TrackerMarker[] = [];
-    if (active?.rider_lat != null && active?.rider_lng != null) {
-      list.push({ lat: active.rider_lat, lng: active.rider_lng, label: 'You', kind: 'rider' });
-    } else if (route.length > 1) {
-      const mid = route[Math.floor(route.length / 3)];
-      list.push({ lat: mid.lat, lng: mid.lng, label: 'You', kind: 'rider' });
+    if (riderPoint) {
+      list.push({ lat: riderPoint.lat, lng: riderPoint.lng, label: 'You', kind: 'rider' });
     }
-    list.push({ lat: dropPoint.lat, lng: dropPoint.lng, label: 'DROP', kind: 'dropoff' });
+    const dropLabel = nextStop.address_title || nextStop.customer_name || 'Drop-off';
+    list.push({ lat: dropPoint.lat, lng: dropPoint.lng, label: dropLabel, kind: 'dropoff' });
     return list;
-  }, [batch, dropPoint, nextStop, route, active]);
+  }, [batch, dropPoint, nextStop, riderPoint]);
 
   const etaLabel = active
     ? `${active.eta_minutes} mins (${active.distance_remaining_km.toFixed(1)} km remaining)`

@@ -1,7 +1,14 @@
 import L from 'leaflet';
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { config, hasGoogleMaps } from '@/config';
+
+function shouldSkipGoogleMaps() {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+}
+
 import { GoogleMapView } from './GoogleMapView';
 
 export interface MapMarker {
@@ -52,6 +59,48 @@ function ClickCapture({ onPick }: { onPick: (lat: number, lng: number) => void }
   return null;
 }
 
+function LeafletMapView({
+  markers,
+  center,
+  zoom,
+  height = 420,
+  onPick,
+  route,
+  fitPoints,
+  fitKey,
+  banner,
+}: {
+  markers: MapMarker[];
+  center?: [number, number];
+  zoom?: number;
+  height?: number;
+  onPick?: (lat: number, lng: number) => void;
+  route?: [number, number][];
+  fitPoints?: [number, number][];
+  fitKey?: string | null;
+  banner?: string | null;
+}) {
+  const c = center ?? config.mapCenter;
+  return (
+    <div>
+      {banner && <div className="dm-map-banner">{banner}</div>}
+      <MapContainer center={c} zoom={zoom ?? config.mapZoom} style={{ height, width: '100%' }} className="dm-map">
+        <TileLayer url={config.mapTileUrl} attribution={config.mapAttribution} />
+        {onPick && <ClickCapture onPick={onPick} />}
+        <FitBounds points={fitPoints} fitKey={fitKey} center={center} />
+        {route && route.length > 1 && (
+          <Polyline positions={route} pathOptions={{ color: '#5B3DF5', weight: 4, dashArray: '8 6', opacity: 0.85 }} />
+        )}
+        {markers.map((m, i) => (
+          <Marker key={m.id ?? `${m.lat}-${m.lng}-${i}`} position={[m.lat, m.lng]} icon={icon(m.kind ?? 'pin', m.stale, m.selected)}>
+            {m.label && <Popup>{m.label}</Popup>}
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
+  );
+}
+
 export function MapView({
   markers,
   center,
@@ -71,7 +120,9 @@ export function MapView({
   fitPoints?: [number, number][];
   fitKey?: string | null;
 }) {
-  if (hasGoogleMaps) {
+  const [googleFailed, setGoogleFailed] = useState(shouldSkipGoogleMaps());
+
+  if (hasGoogleMaps && !googleFailed) {
     return (
       <GoogleMapView
         markers={markers}
@@ -82,24 +133,26 @@ export function MapView({
         route={route}
         fitPoints={fitPoints}
         fitKey={fitKey}
+        onFailed={() => setGoogleFailed(true)}
       />
     );
   }
 
-  const c = center ?? config.mapCenter;
+  const banner = googleFailed
+    ? 'Google Maps is unavailable on this host (add your admin URL to the API key HTTP referrers, or use OpenStreetMap).'
+    : null;
+
   return (
-    <MapContainer center={c} zoom={zoom ?? config.mapZoom} style={{ height, width: '100%' }} className="dm-map">
-      <TileLayer url={config.mapTileUrl} attribution={config.mapAttribution} />
-      {onPick && <ClickCapture onPick={onPick} />}
-      <FitBounds points={fitPoints} fitKey={fitKey} center={center} />
-      {route && route.length > 1 && (
-        <Polyline positions={route} pathOptions={{ color: '#5B3DF5', weight: 4, dashArray: '8 6', opacity: 0.85 }} />
-      )}
-      {markers.map((m, i) => (
-        <Marker key={m.id ?? `${m.lat}-${m.lng}-${i}`} position={[m.lat, m.lng]} icon={icon(m.kind ?? 'pin', m.stale, m.selected)}>
-          {m.label && <Popup>{m.label}</Popup>}
-        </Marker>
-      ))}
-    </MapContainer>
+    <LeafletMapView
+      markers={markers}
+      center={center}
+      zoom={zoom}
+      height={height}
+      onPick={onPick}
+      route={route}
+      fitPoints={fitPoints}
+      fitKey={fitKey}
+      banner={banner}
+    />
   );
 }

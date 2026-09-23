@@ -20,6 +20,7 @@ export function GoogleMapView({
   route,
   fitPoints,
   fitKey,
+  onFailed,
 }: {
   markers: MapMarker[];
   center?: [number, number];
@@ -29,6 +30,7 @@ export function GoogleMapView({
   route?: [number, number][];
   fitPoints?: [number, number][];
   fitKey?: string | null;
+  onFailed?: () => void;
 }) {
   const mapRef = useRef<google.maps.Map | null>(null);
   const { isLoaded, loadError } = useGoogleMaps();
@@ -61,10 +63,14 @@ export function GoogleMapView({
     fitMap(map);
   }, [fitKey, fitPoints, center]);
 
+  useEffect(() => {
+    if (loadError) onFailed?.();
+  }, [loadError, onFailed]);
+
   if (loadError) {
     return (
       <div className="dm-map dm-map-fallback" style={{ height }}>
-        <p>Google Maps failed to load. Check VITE_GOOGLE_MAPS_KEY and referrer restrictions.</p>
+        <p>Google Maps failed to load.</p><p className="dm-map-error-detail">{loadError.message}</p><p className="dm-map-error-detail">Enable Maps JavaScript API on GCP project Khana-any-where-user and allow this site in the API key HTTP referrers.</p>
       </div>
     );
   }

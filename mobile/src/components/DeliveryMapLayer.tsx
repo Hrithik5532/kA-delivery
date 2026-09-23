@@ -19,7 +19,7 @@ export function DeliveryMapLayer({
   if (!hasMapCredentials) return null;
 
   if (Platform.OS === 'web') {
-    return <GoogleDeliveryMap route={route} markers={markers} style={style} />;
+    return <GoogleDeliveryMap route={route} markers={markers} style={style} onMapReady={onMapReady} />;
   }
 
   return <NativeDeliveryMap route={route} markers={markers} style={style} onMapReady={onMapReady} />;

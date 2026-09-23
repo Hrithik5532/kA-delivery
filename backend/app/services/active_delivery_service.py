@@ -109,8 +109,8 @@ def mark_arrived_at_drop(delivery: Delivery) -> dict:
 
 
 DEMO_ACTIVE_NOTE = "demo-active-delivery"
-DEMO_DROP_LAT = 18.5335
-DEMO_DROP_LNG = 73.8420
+DEMO_DROP_LAT = 12.9260
+DEMO_DROP_LNG = 77.6760
 
 
 
