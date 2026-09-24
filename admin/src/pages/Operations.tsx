@@ -330,13 +330,21 @@ export function Operations() {
               </div>
               <div className="lt-map-frame">
                 {mapTab === 'dispatch' ? (
-                  <MapView
-                    markers={markers}
-                    height={560}
-                    route={route}
-                    fitPoints={mapFit?.points}
-                    fitKey={mapFit?.key ?? null}
-                  />
+                  <>
+                    {online > 0 &&
+                      markers.filter((m) => m.kind === 'idle' || m.kind === 'rider').length === 0 && (
+                        <div className="dm-map-banner">
+                          Waiting for GPS from online partners — open the partner app, go online, and allow location.
+                        </div>
+                      )}
+                    <MapView
+                      markers={markers}
+                      height={560}
+                      route={route}
+                      fitPoints={mapFit?.points}
+                      fitKey={mapFit?.key ?? null}
+                    />
+                  </>
                 ) : (
                   <div className="lt-map-placeholder">
                     <p>{mapTab === 'heatmap' ? 'Heatmap & congestion layers' : 'EV charging stations'}</p>
