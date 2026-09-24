@@ -35,14 +35,15 @@ def test_implausible_jump_rejected(client, rider_token):
     assert resp.json()["detail"] in {"implausible_jump", "implausible_speed"}
 
 
-def test_location_requires_active_delivery(client, rider_token):
+def test_location_allowed_while_online_without_delivery(client, rider_token):
     client.post("/api/v1/rider/online", headers=_auth(rider_token))
     resp = client.post(
         "/api/v1/rider/location",
         headers=_auth(rider_token),
-        json={"lat": 18.52, "lng": 73.85, "client_timestamp": "2026-09-15T10:00:00"},
+        json={"lat": 18.52, "lng": 73.85, "client_timestamp": now_iso()},
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 200
+    assert resp.json()["accepted"] is True
 
 
 def test_rider_cannot_complete_another_riders_delivery(client, rider_token):

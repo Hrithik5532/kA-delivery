@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     login_otp_expiry_minutes: int = 5
 
     # --- Dispatch / batching ---
-    dispatch_offer_timeout_seconds: int = 30
+    dispatch_offer_timeout_seconds: int = 86400  # 24h; offers end only on accept/reject
     dispatch_max_batch_size: int = 1
     dispatch_max_mess_radius_km: float = 8.0
     default_rider_email: str = "rider@digimess.app"

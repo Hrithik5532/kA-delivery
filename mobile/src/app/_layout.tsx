@@ -18,6 +18,9 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from '@/auth/auth-context';
+// Side-effect import: registers the rider background-location TaskManager task at
+// startup so the OS can relaunch it headless while the partner is online.
+import '@/lib/background-location';
 import { FeedbackProvider } from '@/components/FeedbackProvider';
 import { Loading } from '@/components/Loading';
 import { isUnapprovedAllowedPath } from '@/lib/verification-gate';

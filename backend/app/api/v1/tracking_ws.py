@@ -18,13 +18,11 @@ from app.database import SessionLocal
 from app.models.enums import TERMINAL_ORDER_STATUSES
 from app.models.order import Order
 from app.models.user import User
+from app.config import settings
 from app.services import tracking_service
 from app.services.ws_manager import manager
 
 router = APIRouter(tags=["tracking"])
-
-# Periodic refresh cadence (seconds) even without an explicit publish.
-_POLL_SECONDS = 3.0
 
 # Custom close codes.
 _CLOSE_UNAUTHORIZED = 4401
@@ -100,7 +98,9 @@ async def tracking_ws(
                 break
 
             try:
-                await asyncio.wait_for(event.wait(), timeout=_POLL_SECONDS)
+                await asyncio.wait_for(
+                    event.wait(), timeout=settings.location_update_interval_seconds
+                )
             except (asyncio.TimeoutError, TimeoutError):
                 pass
             event.clear()

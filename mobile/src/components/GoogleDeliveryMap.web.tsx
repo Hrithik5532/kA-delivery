@@ -49,6 +49,18 @@ function markerIcon(color: string, scale = 9) {
   };
 }
 
+const MARKER_SCALE: Record<string, number> = {
+  rider: 10,
+  mess: 12,
+  dropoff: 12,
+};
+
+const MARKER_LABEL: Record<string, string> = {
+  rider: 'Y',
+  mess: 'P',
+  dropoff: 'D',
+};
+
 function InteractiveGoogleMap({
   route,
   markers,
@@ -75,17 +87,19 @@ function InteractiveGoogleMap({
 
   const fitMap = useCallback(() => {
     const map = mapRef.current;
-    if (!map || points.length === 0) return;
-    if (points.length === 1) {
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend(points[0]);
-      map.fitBounds(bounds, 48);
-      return;
-    }
+    if (!map) return;
+
+    const markerPoints = markers
+      .filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lng))
+      .map((m) => ({ lat: m.lat, lng: m.lng }));
+
+    const boundsPoints = markerPoints.length > 0 ? markerPoints : points;
+    if (boundsPoints.length === 0) return;
+
     const bounds = new google.maps.LatLngBounds();
-    points.forEach((p) => bounds.extend(p));
-    map.fitBounds(bounds, 48);
-  }, [points]);
+    boundsPoints.forEach((p) => bounds.extend(p));
+    map.fitBounds(bounds, 64);
+  }, [markers, points]);
 
   useEffect(() => {
     if (error) onFailed?.();
@@ -127,7 +141,14 @@ function InteractiveGoogleMap({
         position: { lat: m.lat, lng: m.lng },
         title: m.title,
         map,
-        icon: markerIcon(m.pinColor ?? '#5B3DF5'),
+        icon: markerIcon(m.pinColor ?? '#5B3DF5', MARKER_SCALE[m.kind ?? ''] ?? 10),
+        label: {
+          text: MARKER_LABEL[m.kind ?? ''] ?? '•',
+          color: '#ffffff',
+          fontSize: '11px',
+          fontWeight: '700',
+        },
+        zIndex: m.kind === 'rider' ? 3 : m.kind === 'dropoff' ? 2 : 1,
       }),
     );
 

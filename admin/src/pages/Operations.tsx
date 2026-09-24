@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/client';
+import { config } from '@/config';
 import { useAsync } from '@/hooks/useAsync';
 import { AsyncView } from '@/ui/kit';
 import { MapView, type MapMarker } from '@/components/MapView';
@@ -83,10 +84,10 @@ export function Operations() {
   const { data: deliveries, loading, error, stale, reload } = useAsync(
     () => api.activeDeliveries(false),
     [],
-    5000,
+    config.liveTrackingPollMs,
   );
   const { data: overview } = useAsync(() => api.overview(), [], 15000);
-  const { data: onlinePartners } = useAsync(() => api.partners({ online: true }), [], 15000);
+  const { data: onlinePartners } = useAsync(() => api.partners({ online: true }), [], config.liveTrackingPollMs);
 
   const cards = useMemo(() => {
     const rows = deliveries ?? [];
@@ -146,18 +147,35 @@ export function Operations() {
 
   const [fitSnapshot, setFitSnapshot] = useState<{ key: string; points: [number, number][] } | null>(null);
 
+  const visibleIdleRiderIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const c of filtered) {
+      if (c.idle && c.partner) ids.add(c.partner.rider_id);
+    }
+    return ids;
+  }, [filtered]);
+
   useEffect(() => {
-    if (!effectiveSelectedKey || !selDelivery) {
+    if (!effectiveSelectedKey || !selected) {
       setFitSnapshot(null);
       return;
     }
-    const pts: [number, number][] = [[selDelivery.pickup_lat, selDelivery.pickup_lng]];
-    if (selDelivery.rider_marker) {
-      pts.push([selDelivery.rider_marker.lat, selDelivery.rider_marker.lng]);
+    if (selDelivery) {
+      const pts: [number, number][] = [[selDelivery.pickup_lat, selDelivery.pickup_lng]];
+      if (selDelivery.rider_marker) {
+        pts.push([selDelivery.rider_marker.lat, selDelivery.rider_marker.lng]);
+      }
+      pts.push([selDelivery.dropoff_lat, selDelivery.dropoff_lng]);
+      setFitSnapshot({ key: effectiveSelectedKey, points: pts });
+      return;
     }
-    pts.push([selDelivery.dropoff_lat, selDelivery.dropoff_lng]);
-    setFitSnapshot({ key: effectiveSelectedKey, points: pts });
-  }, [effectiveSelectedKey]);
+    if (selected.idle && selected.partner?.last_lat != null && selected.partner?.last_lng != null) {
+      setFitSnapshot({
+        key: effectiveSelectedKey,
+        points: [[selected.partner.last_lat, selected.partner.last_lng]],
+      });
+    }
+  }, [effectiveSelectedKey, selDelivery, selected]);
 
   const markers: MapMarker[] = useMemo(() => {
     const list: MapMarker[] = [];
@@ -190,8 +208,23 @@ export function Operations() {
         });
       }
     }
+    const busyRiderIds = new Set((deliveries ?? []).map((d) => d.rider_id).filter(Boolean) as number[]);
+    for (const p of onlinePartners?.items ?? []) {
+      if (busyRiderIds.has(p.rider_id)) continue;
+      if (!visibleIdleRiderIds.has(p.rider_id)) continue;
+      if (p.last_lat == null || p.last_lng == null) continue;
+      list.push({
+        id: `idle-${p.rider_id}`,
+        lat: p.last_lat,
+        lng: p.last_lng,
+        label: p.full_name,
+        kind: 'idle',
+        stale: p.location_is_stale,
+        selected: selected?.partner?.rider_id === p.rider_id && selected.idle,
+      });
+    }
     return list;
-  }, [deliveries, selDelivery, visibleOrderIds]);
+  }, [deliveries, selDelivery, visibleOrderIds, onlinePartners, visibleIdleRiderIds, selected]);
 
   const route = useMemo(() => {
     if (!selDelivery) return undefined;
@@ -202,6 +235,15 @@ export function Operations() {
     pts.push([selDelivery.dropoff_lat, selDelivery.dropoff_lng]);
     return pts;
   }, [selDelivery]);
+
+  const mapFit = useMemo(() => {
+    if (fitSnapshot) return fitSnapshot;
+    if (markers.length === 0) return null;
+    return {
+      key: 'overview',
+      points: markers.map((m) => [m.lat, m.lng] as [number, number]),
+    };
+  }, [fitSnapshot, markers]);
 
   return (
     <div className="live-tracking">
@@ -292,8 +334,8 @@ export function Operations() {
                     markers={markers}
                     height={560}
                     route={route}
-                    fitPoints={fitSnapshot?.points}
-                    fitKey={fitSnapshot?.key ?? null}
+                    fitPoints={mapFit?.points}
+                    fitKey={mapFit?.key ?? null}
                   />
                 ) : (
                   <div className="lt-map-placeholder">
@@ -303,6 +345,7 @@ export function Operations() {
                 )}
                 <div className="lt-legend">
                   <span><i className="dot purple" /> Assigned / Active Route</span>
+                  <span><i className="dot indigo" /> Idle (Available)</span>
                   <span><i className="dot mint" /> On Delivery</span>
                 </div>
               </div>

@@ -222,12 +222,14 @@ def my_offers(
     offers = db.execute(
         select(DeliveryOffer).where(
             DeliveryOffer.rider_id == user.id,
-            DeliveryOffer.status == OfferStatus.sent,
+            DeliveryOffer.status.in_([OfferStatus.sent, OfferStatus.expired]),
         )
     ).scalars().all()
     out: list[OfferOut] = []
     for offer in offers:
         batch = db.get(DeliveryBatch, offer.batch_id)
+        if not dispatch_service.offer_is_actionable(offer, batch):
+            continue
         mess = db.get(Mess, batch.mess_id)
         deliveries = batch.deliveries
         orders = [db.get(Order, d.order_id) for d in deliveries]
@@ -267,9 +269,9 @@ def offer_detail(
     offer = db.get(DeliveryOffer, offer_id)
     if offer is None or offer.rider_id != user.id:
         raise HTTPException(status_code=404, detail="Offer not found")
-    if offer.status != OfferStatus.sent:
-        raise HTTPException(status_code=409, detail="Offer is no longer available")
     batch = db.get(DeliveryBatch, offer.batch_id)
+    if not dispatch_service.offer_is_actionable(offer, batch):
+        raise HTTPException(status_code=409, detail="Offer is no longer available")
     mess = db.get(Mess, batch.mess_id)
     deliveries = batch.deliveries
     orders = [db.get(Order, d.order_id) for d in deliveries]
@@ -355,25 +357,25 @@ def post_location(
     user: User = Depends(require_approved_rider),
     db: Session = Depends(get_db),
 ) -> LocationAccepted:
-    """Ingest a rider location. Only allowed while online with an active
-    delivery; the position is validated before storage and pushed to the
-    authorized customers of the active batch.
+    """Ingest a rider location while online (idle or on an active delivery).
+
+    Positions are validated before storage. Customer WebSocket updates are sent
+    only when the rider has an active batch with undelivered stops.
     """
     if user.rider_profile is None or not user.rider_profile.is_online:
         raise HTTPException(status_code=409, detail="Rider is not online")
     batch = _active_batch(db, user.id)
-    if batch is None:
-        raise HTTPException(status_code=409, detail="No active delivery to track")
 
-    # The order_id tag: first still-in-progress stop in the batch.
-    active_order_id = next(
-        (
-            d.order_id
-            for d in sorted(batch.deliveries, key=lambda d: d.sequence)
-            if d.status != DeliveryStatus.delivered
-        ),
-        None,
-    )
+    active_order_id = None
+    if batch is not None:
+        active_order_id = next(
+            (
+                d.order_id
+                for d in sorted(batch.deliveries, key=lambda d: d.sequence)
+                if d.status != DeliveryStatus.delivered
+            ),
+            None,
+        )
 
     result = location_service.validate_and_store(
         db,
@@ -391,10 +393,10 @@ def post_location(
         raise HTTPException(status_code=422, detail=result.reason)
 
     db.commit()
-    # Push to every customer whose order is still being tracked in this batch.
-    for delivery in batch.deliveries:
-        if delivery.status != DeliveryStatus.delivered:
-            manager.publish(delivery.order_id)
+    if batch is not None:
+        for delivery in batch.deliveries:
+            if delivery.status != DeliveryStatus.delivered:
+                manager.publish(delivery.order_id)
 
     return LocationAccepted(accepted=True, server_timestamp=result.server_timestamp)
 

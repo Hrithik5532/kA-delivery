@@ -229,7 +229,8 @@ def create_offer(db: Session, batch: DeliveryBatch, rider: User) -> DeliveryOffe
         rider_id=rider.id,
         status=OfferStatus.sent,
         sent_at=now,
-        expires_at=now + timedelta(seconds=settings.dispatch_offer_timeout_seconds),
+        # Offer stays open until the rider accepts or rejects (no auto-expire on accept).
+        expires_at=now + timedelta(seconds=max(settings.dispatch_offer_timeout_seconds, 86400)),
     )
     db.add(offer)
     batch.status = BatchStatus.offered
@@ -250,6 +251,27 @@ def offer_batch_to_next_rider(db: Session, batch: DeliveryBatch) -> DeliveryOffe
     if not candidates:
         return None
     return create_offer(db, batch, candidates[0][0])
+
+
+
+def offer_still_open(batch: DeliveryBatch | None) -> bool:
+    """True while the batch is unassigned and waiting for a rider response."""
+    if batch is None:
+        return False
+    if batch.rider_id is not None:
+        return False
+    return batch.status in (BatchStatus.offered, BatchStatus.open)
+
+
+def offer_is_actionable(offer: DeliveryOffer, batch: DeliveryBatch | None) -> bool:
+    """Rider can accept/decline while the batch is still unassigned.
+
+    Includes ``expired`` offers that timed out under the old 30s policy but were
+    never reassigned — so partners are not blocked after a slow review.
+    """
+    if not offer_still_open(batch):
+        return False
+    return offer.status in (OfferStatus.sent, OfferStatus.expired)
 
 
 def _expire_if_needed(db: Session, offer: DeliveryOffer) -> bool:
@@ -537,10 +559,10 @@ def release_remaining_stops_after_completion(db: Session, batch: DeliveryBatch) 
 def accept_offer(db: Session, offer: DeliveryOffer, rider: User) -> DeliveryBatch:
     if offer.rider_id != rider.id:
         raise PermissionError("Offer does not belong to this rider")
-    if _expire_if_needed(db, offer) or offer.status != OfferStatus.sent:
+    batch = db.get(DeliveryBatch, offer.batch_id)
+    if not offer_is_actionable(offer, batch):
         raise ValueError("Offer is no longer available")
 
-    batch = db.get(DeliveryBatch, offer.batch_id)
     offer.status = OfferStatus.accepted
     offer.responded_at = utcnow()
     batch.rider_id = rider.id
@@ -563,10 +585,13 @@ def accept_offer(db: Session, offer: DeliveryOffer, rider: User) -> DeliveryBatc
 def reject_offer(db: Session, offer: DeliveryOffer, rider: User) -> DeliveryOffer | None:
     if offer.rider_id != rider.id:
         raise PermissionError("Offer does not belong to this rider")
-    if offer.status == OfferStatus.sent:
+    batch = db.get(DeliveryBatch, offer.batch_id)
+    if not offer_is_actionable(offer, batch):
+        raise ValueError("Offer is no longer available")
+    if offer.status in (OfferStatus.sent, OfferStatus.expired):
         offer.status = OfferStatus.rejected
         offer.responded_at = utcnow()
-    batch = db.get(DeliveryBatch, offer.batch_id)
+
     batch.status = BatchStatus.open
     for delivery in batch.deliveries:
         if delivery.status == DeliveryStatus.offered:

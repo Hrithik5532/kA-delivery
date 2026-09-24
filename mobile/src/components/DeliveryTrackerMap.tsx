@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
-import { LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native';
+import { LayoutChangeEvent, StyleSheet, View } from 'react-native';
 import { DeliveryMapLayer } from '@/components/DeliveryMapLayer';
 import { OsmTileBackground, projectPointInBounds } from '@/components/OsmTileBackground';
-import { config, hasMapCredentials } from '@/config';
-import { boundsFor, staticGoogleMapUrl, staticMapUrl, type LatLng } from '@/lib/map-route';
+import { config, useInteractiveMap } from '@/config';
+import { boundsFor, pickOsmZoom, staticGoogleMapUrl, staticMapUrl, type LatLng } from '@/lib/map-route';
 import { colors, radius, shadow, spacing } from '@/theme';
 import { Text } from './ui/Text';
 
@@ -19,24 +19,31 @@ export interface TrackerMarker {
 }
 
 const MARKER_META: Record<TrackerMarkerKind, { color: string; icon: keyof typeof Ionicons.glyphMap }> = {
-  mess: { color: colors.warning, icon: 'restaurant' },
-  rider: { color: colors.primary, icon: 'bicycle' },
-  dropoff: { color: colors.success, icon: 'home' },
+  rider: { color: '#4212DE', icon: 'navigate' },
+  mess: { color: '#F59E0B', icon: 'restaurant' },
+  dropoff: { color: '#10B981', icon: 'home' },
 };
 
 const PIN_COLORS: Record<TrackerMarkerKind, string> = {
-  mess: colors.warning,
-  rider: colors.primary,
-  dropoff: colors.success,
+  rider: '#4212DE',
+  mess: '#F59E0B',
+  dropoff: '#10B981',
 };
+
+export const TRACKER_LEGEND: Array<{ kind: TrackerMarkerKind; label: string }> = [
+  { kind: 'rider', label: 'You' },
+  { kind: 'mess', label: 'Pickup' },
+  { kind: 'dropoff', label: 'Drop-off' },
+];
 
 function projectPoint(
   point: LatLng,
   bounds: ReturnType<typeof boundsFor>,
   width: number,
   height: number,
+  zoom: number,
 ) {
-  return projectPointInBounds(point, bounds, width, height);
+  return projectPointInBounds(point, bounds, width, height, zoom);
 }
 
 function RouteSegment({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
@@ -83,7 +90,8 @@ function StaticTrackerMap({
   onLayout: (e: LayoutChangeEvent) => void;
 }) {
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [mapFailed, setMapFailed] = useState(Platform.OS === 'web');
+  const [mapFailed, setMapFailed] = useState(false);
+  const zoom = useMemo(() => pickOsmZoom(bounds), [bounds]);
   const googleMapUrl = useMemo(
     () => staticGoogleMapUrl(
       [...route, ...markers.map((m) => ({ lat: m.lat, lng: m.lng }))],
@@ -98,16 +106,16 @@ function StaticTrackerMap({
 
   const projectedRoute = useMemo(() => {
     if (!size.width) return [] as { x: number; y: number }[];
-    return route.map((p) => projectPoint(p, bounds, size.width, size.height));
-  }, [route, bounds, size]);
+    return route.map((p) => projectPoint(p, bounds, size.width, size.height, zoom));
+  }, [route, bounds, size, zoom]);
 
   const projectedMarkers = useMemo(() => {
     if (!size.width) return [] as Array<{ x: number; y: number; marker: TrackerMarker }>;
     return markers.map((m) => ({
       marker: m,
-      ...projectPoint(m, bounds, size.width, size.height),
+      ...projectPoint(m, bounds, size.width, size.height, zoom),
     }));
-  }, [markers, bounds, size]);
+  }, [markers, bounds, size, zoom]);
 
   return (
     <View style={[styles.wrap, { height }, style]} onLayout={(e) => {
@@ -155,29 +163,37 @@ export function DeliveryTrackerMap({
   height,
   style,
   badgeLabel = 'LIVE TRACKING',
+  showLegend = false,
 }: {
   markers: TrackerMarker[];
   route: LatLng[];
   height: number;
   style?: object;
   badgeLabel?: string;
+  showLegend?: boolean;
 }) {
   const allPoints = useMemo(() => [...route, ...markers.map((m) => ({ lat: m.lat, lng: m.lng }))], [route, markers]);
   const bounds = useMemo(() => boundsFor(allPoints), [allPoints]);
   const mapUrl = useMemo(() => staticMapUrl(allPoints, 720, height, config.mapApiKey, route), [allPoints, height, route]);
 
   const nativeMarkers = useMemo(
-    () => markers.map((m) => ({ lat: m.lat, lng: m.lng, title: m.label, pinColor: PIN_COLORS[m.kind] })),
+    () => markers.map((m) => ({
+      lat: m.lat,
+      lng: m.lng,
+      title: m.label,
+      pinColor: PIN_COLORS[m.kind],
+      kind: m.kind,
+    })),
     [markers],
   );
 
   const noopLayout = (_e: LayoutChangeEvent) => {};
 
-  const useInteractiveMap = hasMapCredentials;
+  const useInteractiveMapLayer = useInteractiveMap;
 
   return (
     <View style={[styles.wrap, { height }, style]}>
-      {useInteractiveMap ? (
+      {useInteractiveMapLayer ? (
         <DeliveryMapLayer route={route} markers={nativeMarkers} style={{ height }} />
       ) : (
         <StaticTrackerMap
@@ -193,6 +209,17 @@ export function DeliveryTrackerMap({
       <View style={styles.badge} pointerEvents="none">
         <Text variant="caption" style={styles.badgeText}>{badgeLabel}</Text>
       </View>
+
+      {showLegend ? (
+        <View style={styles.legend} pointerEvents="none">
+          {TRACKER_LEGEND.map(({ kind, label }) => (
+            <View key={kind} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: PIN_COLORS[kind] }]} />
+              <Text variant="caption" style={styles.legendText}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -208,4 +235,20 @@ const styles = StyleSheet.create({
   markerLabel: { marginTop: 2, fontWeight: '700', textAlign: 'center', backgroundColor: colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.sm, overflow: 'hidden' },
   badge: { position: 'absolute', top: spacing.md, left: spacing.md, backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, ...shadow },
   badgeText: { color: colors.primary, fontWeight: '800', letterSpacing: 0.6 },
+  legend: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    left: spacing.sm,
+    right: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    ...shadow,
+  },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { fontWeight: '700', color: colors.text, fontSize: 11 },
 });

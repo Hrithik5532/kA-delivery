@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
+import { config } from '@/config';
 import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, radius, spacing } from '@/theme';
@@ -61,7 +62,11 @@ export default function OrderPickup() {
     }
   }, [router]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    const t = setInterval(() => { void load(); }, config.locationIntervalMs);
+    return () => clearInterval(t);
+  }, [load]));
 
   const messPoint = useMemo(
     () => (detail ? { lat: detail.merchant.lat, lng: detail.merchant.lng } : null),

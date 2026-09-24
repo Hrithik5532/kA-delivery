@@ -15,9 +15,9 @@ import { PartnerCard } from '@/components/partner';
 import { Button } from '@/components/ui/Button';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
+import { config } from '@/config';
 import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
 import { useRiderPosition } from '@/hooks/useRiderPosition';
-import { useRiderLocationBroadcast } from '@/lib/rider-location';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, spacing } from '@/theme';
 
@@ -29,9 +29,6 @@ export default function ActiveDelivery() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const trackingActive = !!batch && batch.status === 'picked_up';
-  useRiderLocationBroadcast(trackingActive);
 
   const load = useCallback(async () => {
     try {
@@ -46,7 +43,7 @@ export default function ActiveDelivery() {
 
   useFocusEffect(useCallback(() => {
     void load();
-    const t = setInterval(load, 8000);
+    const t = setInterval(load, config.locationIntervalMs);
     return () => clearInterval(t);
   }, [load]));
 

@@ -14,6 +14,7 @@ import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
 import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
 import { useRiderPosition } from '@/hooks/useRiderPosition';
+import { mergeRouteLegs } from '@/lib/map-route';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, estimateDeliveryMins, money, spacing } from '@/theme';
 
@@ -24,57 +25,69 @@ export default function DeliveryRequest() {
   const [offer, setOffer] = useState<OfferDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [timerSecs, setTimerSecs] = useState(0);
   const feedback = useFeedback();
 
   useEffect(() => {
     void api.offerDetail(Number(offerId)).then(setOffer).catch(() => setOffer(null));
   }, [offerId]);
 
-  useEffect(() => {
-    if (!offer?.expires_at) return;
-    const tick = () => setTimerSecs(Math.max(0, Math.round((new Date(offer.expires_at).getTime() - Date.now()) / 1000)));
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [offer?.expires_at]);
-
   const firstStop = offer?.stops?.[0];
   const messPoint = offer?.mess_lat != null && offer?.mess_lng != null
     ? { lat: offer.mess_lat, lng: offer.mess_lng }
     : null;
+  const dropPoint = useMemo(() => {
+    if (firstStop?.address_lat != null && firstStop?.address_lng != null) {
+      return { lat: firstStop.address_lat, lng: firstStop.address_lng };
+    }
+    return null;
+  }, [firstStop?.address_lat, firstStop?.address_lng]);
   const riderPoint = useRiderPosition();
-  const routeOrigin = useMemo(() => {
-    if (riderPoint) return riderPoint;
-    if (!messPoint) return null;
-    return { lat: messPoint.lat - 0.012, lng: messPoint.lng - 0.008 };
-  }, [riderPoint, messPoint]);
 
-  const { route, distanceKm: directionsPickupKm } = useDirectionsRoute(routeOrigin, messPoint);
+  const { route: toPickupRoute, distanceKm: directionsPickupKm } = useDirectionsRoute(
+    riderPoint,
+    messPoint,
+    !!riderPoint && !!messPoint,
+  );
+  const { route: deliveryRoute, distanceKm: deliveryLegKm } = useDirectionsRoute(messPoint, dropPoint);
+  const route = useMemo(
+    () => mergeRouteLegs(toPickupRoute, deliveryRoute),
+    [toPickupRoute, deliveryRoute],
+  );
 
   const pickupKm = directionsPickupKm ?? offer?.pickup_distance_km ?? null;
-  const totalKm = offer?.total_distance_km ?? (pickupKm != null ? pickupKm * 1.2 : null);
-  const dropKm = offer?.drop_distance_km ?? pickupKm;
+  const dropKm = deliveryLegKm ?? offer?.drop_distance_km ?? null;
+  const totalKm = offer?.total_distance_km
+    ?? (pickupKm != null && dropKm != null ? pickupKm + dropKm : pickupKm != null ? pickupKm * 1.2 : null);
   const eta = estimateDeliveryMins(totalKm);
+
+  const mapBadge = useMemo(() => {
+    if (pickupKm != null && dropKm != null) {
+      return `${pickupKm.toFixed(1)} km pickup · ${dropKm.toFixed(1)} km drop`;
+    }
+    if (pickupKm != null) return `${pickupKm.toFixed(1)} km to pickup`;
+    return 'ROUTE PREVIEW';
+  }, [pickupKm, dropKm]);
 
   const markers: TrackerMarker[] = useMemo(() => {
     const list: TrackerMarker[] = [];
-    if (routeOrigin && riderPoint) {
-      list.push({ lat: routeOrigin.lat, lng: routeOrigin.lng, label: 'You', kind: 'rider' });
+    if (riderPoint) {
+      list.push({ lat: riderPoint.lat, lng: riderPoint.lng, label: 'You', kind: 'rider' });
     }
     if (messPoint && offer?.mess_name) {
       list.push({ lat: messPoint.lat, lng: messPoint.lng, label: offer.mess_name, kind: 'mess' });
     }
+    if (dropPoint) {
+      const dropLabel = firstStop?.address_title || firstStop?.address_text?.split(',')[0] || 'Drop-off';
+      list.push({ lat: dropPoint.lat, lng: dropPoint.lng, label: dropLabel, kind: 'dropoff' });
+    }
     return list;
-  }, [messPoint, offer, routeOrigin, riderPoint]);
+  }, [riderPoint, messPoint, dropPoint, offer, firstStop]);
 
   const summary = offer?.order_summary;
   const items = firstStop?.items ?? [];
   const reducedItems = items.reduce((n, i) => n + i.quantity, 0);
   const itemCount = summary?.item_count ?? reducedItems ?? offer?.order_count ?? 0;
   const isPrepaid = summary?.is_prepaid ?? firstStop?.payment_method?.toLowerCase() !== 'cod';
-  const progressPct = Math.min(100, (timerSecs / 40) * 100);
-
   if (!offer) return <Loading label="Loading offer…" />;
 
   const accept = async () => {
@@ -114,13 +127,9 @@ export default function DeliveryRequest() {
             <Text variant="caption" style={styles.dispatchText}>New Instant Dispatch</Text>
           </View>
           <View style={styles.timerPill}>
-            <Ionicons name="timer" size={16} color={colors.tertiary} />
-            <Text variant="caption" style={styles.timerText}>{timerSecs}s</Text>
+            <Ionicons name="hourglass-outline" size={16} color={colors.tertiary} />
+            <Text variant="caption" style={styles.timerText}>Awaiting you</Text>
           </View>
-        </View>
-
-        <View style={styles.countdownTrack}>
-          <View style={[styles.countdownFill, { width: `${progressPct}%` }]} />
         </View>
 
         <View style={styles.payoutHero}>
@@ -142,10 +151,16 @@ export default function DeliveryRequest() {
             <DeliveryTrackerMap
               markers={markers}
               route={route}
-              height={144}
-              badgeLabel={pickupKm != null ? `${pickupKm.toFixed(1)} km to pickup` : 'TO PICKUP'}
+              height={240}
+              badgeLabel={mapBadge}
+              showLegend
             />
           </View>
+          {!riderPoint ? (
+            <Text variant="caption" style={styles.locationHint}>
+              Allow location access to show your position (purple pin) on the map.
+            </Text>
+          ) : null}
 
           <View style={styles.timeline}>
             <View style={styles.timelineLine} />
@@ -271,6 +286,7 @@ const styles = StyleSheet.create({
   bonusText: { color: colors.onPrimary, fontWeight: '600' },
   routeCard: { padding: spacing.md, gap: spacing.md },
   mapWrap: { borderRadius: 12, overflow: 'hidden' },
+  locationHint: { color: colors.textMuted, textAlign: 'center', marginTop: spacing.xs },
   timeline: { position: 'relative', gap: spacing.lg, paddingLeft: 4 },
   timelineLine: { position: 'absolute', left: 15, top: 28, bottom: 28, width: 2, backgroundColor: colors.border },
   timelineItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },

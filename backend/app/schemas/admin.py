@@ -137,6 +137,10 @@ class PartnerListItem(BaseModel):
     week_earnings_cents: int = 0
     payout_pending: bool = False
     active_order_id: int | None = None
+    last_lat: float | None = None
+    last_lng: float | None = None
+    location_updated_at: datetime | None = None
+    location_is_stale: bool = True
 
 
 class AdminDeliveryRow(BaseModel):

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { useAuth } from '@/auth/auth-context';
+import { RiderLiveLocation } from '@/components/RiderLiveLocation';
 import { useTabBarStyle } from '@/hooks/useTabBarStyle';
 import { isUnapprovedAllowedPath } from '@/lib/verification-gate';
 import { colors } from '@/theme';
@@ -26,7 +27,8 @@ export default function RiderLayout() {
   const hideTabs = !approvalLoading && !isApproved;
 
   return (
-    <Tabs
+    <RiderLiveLocation>
+      <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -48,5 +50,6 @@ export default function RiderLayout() {
       <Tabs.Screen name="help" options={{ href: null }} />
       <Tabs.Screen name="wallet" options={{ href: null }} />
     </Tabs>
+    </RiderLiveLocation>
   );
 }

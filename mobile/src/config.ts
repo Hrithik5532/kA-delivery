@@ -2,6 +2,9 @@
  * Public runtime configuration. Values come from EXPO_PUBLIC_* env vars, which
  * Expo inlines at build time. Backend secrets are never present here.
  */
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
 function num(value: string | undefined, fallback: number): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -20,6 +23,20 @@ export const config = {
   defaultOtp: process.env.EXPO_PUBLIC_DEFAULT_OTP ?? '1212',
 };
 
-/** Whether a real native map should be used (otherwise the dev fallback). */
+/** Whether map API credentials are configured. */
 export const hasMapCredentials =
   config.mapProvider !== 'none' && config.mapApiKey.trim().length > 0;
+
+/**
+ * react-native-maps + PROVIDER_GOOGLE needs the Maps SDK key baked into a custom
+ * native build. Expo Go and bad keys render a blank/black map tile layer.
+ */
+export const useNativeGoogleMaps =
+  hasMapCredentials &&
+  Platform.OS !== 'web' &&
+  Constants.appOwnership !== 'expo';
+
+/** Interactive map: Google JS on web; native Google only in custom dev/prod builds. */
+export const useInteractiveMap = Platform.OS === 'web'
+  ? hasMapCredentials
+  : useNativeGoogleMaps;

@@ -12,10 +12,11 @@ import { FeedbackBanner } from '@/components/FeedbackBanner';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { Loading } from '@/components/Loading';
 import { OnlineStatusBanner, PartnerCard, PartnerHeader } from '@/components/partner';
+import { useRiderLocationStatus } from '@/components/RiderLiveLocation';
 import { Button } from '@/components/ui/Button';
 import { Text } from '@/components/ui/Text';
+import { config } from '@/config';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
-import { useRiderLocationBroadcast } from '@/lib/rider-location';
 import { formatRelativeAgo } from '@/lib/format-time';
 import { colors, formatStatus, money, spacing, statusColor } from '@/theme';
 
@@ -30,18 +31,12 @@ function greeting() {
   return 'Good evening';
 }
 
-function OfferCountdown({ expiresAt }: { expiresAt: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const secs = Math.max(0, Math.round((new Date(expiresAt).getTime() - now) / 1000));
+function OfferCountdown(_props: { expiresAt: string }) {
   return (
     <View style={styles.countdownPill}>
-      <Ionicons name="timer" size={16} color={colors.tertiary} />
+      <Ionicons name="flash" size={16} color={colors.tertiary} />
       <Text variant="caption" style={{ color: colors.onTertiaryFixed, fontWeight: '700' }}>
-        {secs > 0 ? `${secs}s` : 'Expired'}
+        New offer
       </Text>
     </View>
   );
@@ -76,8 +71,7 @@ export default function RiderDashboard() {
   const tipsToday = dashboard?.tips_cents ?? 0;
   const questPct = quest ? Math.min(100, (quest.completed_deliveries / quest.target_deliveries) * 100) : 0;
   const questRemaining = quest ? Math.max(0, quest.target_deliveries - quest.completed_deliveries) : 0;
-  const trackingActive = !!activeBatch && (activeBatch.status === 'assigned' || activeBatch.status === 'picked_up');
-  const { status: locStatus, lastError: locError } = useRiderLocationBroadcast(trackingActive);
+  const { status: locStatus, lastError: locError } = useRiderLocationStatus();
   const feedback = useFeedback();
 
   const load = useCallback(async () => {
@@ -121,7 +115,7 @@ export default function RiderDashboard() {
 
   useFocusEffect(useCallback(() => {
     void load();
-    timer.current = setInterval(load, 5000);
+    timer.current = setInterval(load, config.locationIntervalMs);
     return () => { if (timer.current) clearInterval(timer.current); };
   }, [load]));
 

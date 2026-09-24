@@ -13,6 +13,13 @@ export function interpolateRoute(a: LatLng, b: LatLng, steps: number): LatLng[] 
   return out;
 }
 
+/** Join two direction legs without duplicating the shared endpoint. */
+export function mergeRouteLegs(first: LatLng[], second: LatLng[]): LatLng[] {
+  if (!first.length) return second;
+  if (!second.length) return first;
+  return [...first, ...second.slice(1)];
+}
+
 export function boundsFor(points: LatLng[]) {
   const lats = points.map((p) => p.lat);
   const lngs = points.map((p) => p.lng);
@@ -50,6 +57,58 @@ export function pickOsmZoom(bounds: ReturnType<typeof boundsFor>): number {
   if (span > 0.04) return 12;
   if (span > 0.02) return 13;
   return 14;
+}
+
+const TILE_SIZE = 256;
+
+/** Web Mercator world pixel coordinates for a lat/lng at zoom level. */
+export function latLngToWorldPixel(lat: number, lng: number, zoom: number) {
+  const scale = TILE_SIZE * 2 ** zoom;
+  const x = ((lng + 180) / 360) * scale;
+  const sinLat = Math.sin((lat * Math.PI) / 180);
+  const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
+  return { x, y };
+}
+
+/** Map a lat/lng into view pixel space matching OSM tile layout. */
+export function projectLatLngInBounds(
+  point: LatLng,
+  bounds: ReturnType<typeof boundsFor>,
+  width: number,
+  height: number,
+  zoom: number,
+) {
+  const nw = latLngToWorldPixel(bounds.maxLat, bounds.minLng, zoom);
+  const se = latLngToWorldPixel(bounds.minLat, bounds.maxLng, zoom);
+  const p = latLngToWorldPixel(point.lat, point.lng, zoom);
+  const worldW = se.x - nw.x || 1;
+  const worldH = se.y - nw.y || 1;
+  return {
+    x: ((p.x - nw.x) / worldW) * width,
+    y: ((p.y - nw.y) / worldH) * height,
+  };
+}
+
+export function osmTileLayout(
+  tileX: number,
+  tileY: number,
+  bounds: ReturnType<typeof boundsFor>,
+  width: number,
+  height: number,
+  zoom: number,
+) {
+  const nw = latLngToWorldPixel(bounds.maxLat, bounds.minLng, zoom);
+  const se = latLngToWorldPixel(bounds.minLat, bounds.maxLng, zoom);
+  const worldW = se.x - nw.x || 1;
+  const worldH = se.y - nw.y || 1;
+  const tileWorldX = tileX * TILE_SIZE;
+  const tileWorldY = tileY * TILE_SIZE;
+  return {
+    left: ((tileWorldX - nw.x) / worldW) * width,
+    top: ((tileWorldY - nw.y) / worldH) * height,
+    width: (TILE_SIZE / worldW) * width,
+    height: (TILE_SIZE / worldH) * height,
+  };
 }
 
 export function latLngToTile(lat: number, lng: number, zoom: number) {

@@ -60,6 +60,7 @@ from app.schemas.admin import (
 from app.schemas.partner import DeliveryIssueOut, RiderDocumentOut
 from app.services import (
     audit_service,
+    location_service,
     maps_service,
     wallet_service,
     document_service,
@@ -473,6 +474,7 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
         .limit(1)
     ).scalar_one_or_none()
     wallet = wallet_service.build_wallet(db, profile.user_id)
+    latest = location_service.latest_location(db, profile.user_id)
     return PartnerListItem(
         rider_id=profile.user_id,
         full_name=user.full_name if user else "",
@@ -494,6 +496,10 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
         week_earnings_cents=int(week_earnings or 0),
         payout_pending=bool(payout_pending),
         active_order_id=active_order,
+        last_lat=profile.last_lat,
+        last_lng=profile.last_lng,
+        location_updated_at=latest.server_timestamp if latest else None,
+        location_is_stale=location_service.is_stale(latest) if latest else True,
     )
 
 

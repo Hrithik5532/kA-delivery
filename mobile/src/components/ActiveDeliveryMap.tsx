@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { TrackerMarker } from '@/components/DeliveryTrackerMap';
 import { DeliveryMapLayer } from '@/components/DeliveryMapLayer';
 import { OsmTileBackground, projectPointInBounds } from '@/components/OsmTileBackground';
-import { config, hasMapCredentials } from '@/config';
-import { boundsFor, staticMapUrl, type LatLng } from '@/lib/map-route';
+import { config, useInteractiveMap } from '@/config';
+import { boundsFor, pickOsmZoom, staticMapUrl, type LatLng } from '@/lib/map-route';
 import { colors, radius, shadow, spacing } from '@/theme';
 import { Text } from './ui/Text';
 
@@ -18,8 +18,14 @@ const PIN_COLORS: Record<TrackerMarker['kind'], string> = {
   dropoff: '#E53935',
 };
 
-function projectPoint(point: LatLng, bounds: ReturnType<typeof boundsFor>, width: number, height: number) {
-  return projectPointInBounds(point, bounds, width, height);
+function projectPoint(
+  point: LatLng,
+  bounds: ReturnType<typeof boundsFor>,
+  width: number,
+  height: number,
+  zoom: number,
+) {
+  return projectPointInBounds(point, bounds, width, height, zoom);
 }
 
 function RouteSegment({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
@@ -59,7 +65,8 @@ function StaticDeliveryMap({
   bounds: ReturnType<typeof boundsFor>;
 }) {
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [mapFailed, setMapFailed] = useState(Platform.OS === 'web');
+  const [mapFailed, setMapFailed] = useState(false);
+  const zoom = useMemo(() => pickOsmZoom(bounds), [bounds]);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const startX = useSharedValue(0);
@@ -67,13 +74,13 @@ function StaticDeliveryMap({
 
   const projectedRoute = useMemo(() => {
     if (!size.width) return [];
-    return route.map((p) => projectPoint(p, bounds, size.width, size.height));
-  }, [route, bounds, size]);
+    return route.map((p) => projectPoint(p, bounds, size.width, size.height, zoom));
+  }, [route, bounds, size, zoom]);
 
   const projectedMarkers = useMemo(() => {
     if (!size.width) return [];
-    return markers.map((m) => ({ marker: m, ...projectPoint(m, bounds, size.width, size.height) }));
-  }, [markers, bounds, size]);
+    return markers.map((m) => ({ marker: m, ...projectPoint(m, bounds, size.width, size.height, zoom) }));
+  }, [markers, bounds, size, zoom]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -141,7 +148,7 @@ export function ActiveDeliveryMap({
   onRecenter?: () => void;
 }) {
   const fitRef = useRef<(() => void) | null>(null);
-  const useGoogleMap = hasMapCredentials;
+  const useGoogleMap = useInteractiveMap;
 
   const allPoints = useMemo(() => [...route, ...markers.map((m) => ({ lat: m.lat, lng: m.lng }))], [route, markers]);
   const bounds = useMemo(() => boundsFor(allPoints), [allPoints]);

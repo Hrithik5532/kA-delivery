@@ -22,6 +22,18 @@ module.exports = () => {
             iosGoogleMapsApiKey: mapApiKey,
           },
         ],
+        [
+          'expo-location',
+          {
+            locationWhenInUsePermission:
+              'Khana Delivery uses your location to show your position on the delivery map and share live tracking with the customer while you are on a trip.',
+            locationAlwaysAndWhenInUsePermission:
+              'Khana Delivery shares your live location with ops and customers every few seconds while you are online — including when the app is in the background — so deliveries can be tracked in real time.',
+            isIosBackgroundLocationEnabled: true,
+            isAndroidBackgroundLocationEnabled: true,
+            isAndroidForegroundServiceEnabled: true,
+          },
+        ],
       ],
 
       extra: {

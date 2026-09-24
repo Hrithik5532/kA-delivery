@@ -934,6 +934,7 @@ tr.clickable:hover { background: #FAFBFF; cursor: pointer; }
   vertical-align: middle;
 }
 .lt-legend .dot.purple { background: var(--purple); }
+.lt-legend .dot.indigo { background: #6366F1; }
 .lt-legend .dot.mint { background: var(--mint); }
 
 .lt-float {

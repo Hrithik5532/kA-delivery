@@ -1,11 +1,6 @@
 /**
- * Rider location broadcaster. Only runs while `active` (online with an active
- * delivery). Requests foreground permission, watches position at the configured
- * interval/distance, and posts each fix to the backend, which independently
- * validates ownership, freshness and plausibility.
- *
- * Foreground only: OS background-execution limits are documented in
- * docs/implementation-status.md; continuous background tracking is out of scope.
+ * Rider location broadcaster. Runs while the partner is online (idle or on trip).
+ * Posts GPS on a fixed interval so ops can see live positions on the admin map.
  */
 import * as Location from 'expo-location';
 import { useEffect, useRef, useState } from 'react';
@@ -20,18 +15,49 @@ export type LocationStatus =
   | 'tracking'
   | 'error';
 
+async function postFix(pos: Location.LocationObject) {
+  await api.postLocation({
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude,
+    accuracy: pos.coords.accuracy ?? undefined,
+    heading: pos.coords.heading ?? undefined,
+    speed: pos.coords.speed ?? undefined,
+    client_timestamp: new Date(pos.timestamp).toISOString(),
+  });
+}
+
 export function useRiderLocationBroadcast(active: boolean) {
   const [status, setStatus] = useState<LocationStatus>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
-  const subRef = useRef<Location.LocationSubscription | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
 
     const stop = () => {
-      if (subRef.current) {
-        subRef.current.remove();
-        subRef.current = null;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+
+    const tick = async () => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        if (cancelled) return;
+        await postFix(pos);
+        setLastError(null);
+        setStatus('tracking');
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError) setLastError(err.message);
+      } finally {
+        inFlightRef.current = false;
       }
     };
 
@@ -43,39 +69,10 @@ export function useRiderLocationBroadcast(active: boolean) {
         setStatus('denied');
         return;
       }
-      try {
-        subRef.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: config.locationIntervalMs,
-            distanceInterval: config.locationDistanceM,
-          },
-          async (pos) => {
-            try {
-              await api.postLocation({
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-                accuracy: pos.coords.accuracy ?? undefined,
-                heading: pos.coords.heading ?? undefined,
-                speed: pos.coords.speed ?? undefined,
-                client_timestamp: new Date(pos.timestamp).toISOString(),
-              });
-              setLastError(null);
-            } catch (err) {
-              // A rejected fix (e.g. stale/implausible) is not fatal; keep going.
-              if (err instanceof ApiError) setLastError(err.message);
-            }
-          }
-        );
-        if (cancelled) {
-          stop();
-          return;
-        }
-        setStatus('tracking');
-      } catch (err) {
-        setStatus('error');
-        setLastError(err instanceof Error ? err.message : 'Location error');
-      }
+      await tick();
+      if (cancelled) return;
+      timerRef.current = setInterval(() => { void tick(); }, config.locationIntervalMs);
+      setStatus('tracking');
     };
 
     if (active) {

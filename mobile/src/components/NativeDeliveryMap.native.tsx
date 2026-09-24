@@ -1,21 +1,65 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Constants from 'expo-constants';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 import { config } from '@/config';
 import type { LatLng } from '@/lib/map-route';
+import type { TrackerMarkerKind } from '@/components/DeliveryTrackerMap';
 import type { NativeDeliveryMapProps, NativeMapMarker } from './native-delivery-map.types';
 
 export type { NativeMapMarker } from './native-delivery-map.types';
 
 const EDGE = { top: 72, right: 48, bottom: 72, left: 48 };
 
+/** Branded pin styling per stop kind — kept in sync with DeliveryTrackerMap's MARKER_META. */
+const MARKER_META: Record<TrackerMarkerKind, { color: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  rider: { color: '#4212DE', icon: 'navigate' },
+  mess: { color: '#F59E0B', icon: 'restaurant' },
+  dropoff: { color: '#10B981', icon: 'home' },
+};
+
 function toCoord(p: LatLng) {
   return { latitude: p.lat, longitude: p.lng };
 }
 
+/**
+ * Circular icon badge shown on the interactive map. `tracksViewChanges` starts
+ * true so the Ionicons glyph is captured once the font paints, then flips off to
+ * avoid the per-frame redraw cost react-native-maps warns about.
+ */
+function MarkerBadge({ marker }: { marker: NativeMapMarker }) {
+  const [tracks, setTracks] = useState(true);
+  const meta = marker.kind ? MARKER_META[marker.kind] : undefined;
+  const color = meta?.color ?? marker.pinColor ?? '#5B3DF5';
+
+  useEffect(() => {
+    // Keep tracking briefly so the icon-font glyph is captured, then stop redrawing.
+    const t = setTimeout(() => setTracks(false), 800);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <Marker
+      coordinate={{ latitude: marker.lat, longitude: marker.lng }}
+      title={marker.title}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={tracks}
+    >
+      <View style={[styles.badge, { backgroundColor: color }]}>
+        {meta ? <Ionicons name={meta.icon} size={18} color="#FFFFFF" /> : <View style={styles.dot} />}
+      </View>
+    </Marker>
+  );
+}
+
 export function NativeDeliveryMap({ route, markers, style, onMapReady }: NativeDeliveryMapProps) {
   const mapRef = useRef<MapView | null>(null);
-  const provider = config.mapProvider === 'google' ? PROVIDER_GOOGLE : undefined;
+  const useGoogleProvider =
+    config.mapProvider === 'google' &&
+    config.mapApiKey.trim().length > 0 &&
+    Constants.appOwnership !== 'expo';
+  const provider = useGoogleProvider ? PROVIDER_GOOGLE : undefined;
 
   const allCoords = useMemo(() => {
     const coords = [...route.map(toCoord), ...markers.map((m) => ({ latitude: m.lat, longitude: m.lng }))];
@@ -75,12 +119,7 @@ export function NativeDeliveryMap({ route, markers, style, onMapReady }: NativeD
           <Polyline coordinates={route.map(toCoord)} strokeColor="#5B3DF5" strokeWidth={4} />
         )}
         {markers.map((m, i) => (
-          <Marker
-            key={`${m.lat}-${m.lng}-${i}`}
-            coordinate={{ latitude: m.lat, longitude: m.lng }}
-            title={m.title}
-            pinColor={m.pinColor ?? '#5B3DF5'}
-          />
+          <MarkerBadge key={`${m.kind ?? 'pin'}-${m.lat}-${m.lng}-${i}`} marker={m} />
         ))}
       </MapView>
       <View style={styles.tint} pointerEvents="none" />
@@ -91,4 +130,19 @@ export function NativeDeliveryMap({ route, markers, style, onMapReady }: NativeD
 const styles = StyleSheet.create({
   wrap: { flex: 1, overflow: 'hidden', backgroundColor: '#E8EDF2' },
   tint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(91,61,245,0.03)' },
+  badge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#FFFFFF' },
 });

@@ -16,7 +16,7 @@ export interface MapMarker {
   lat: number;
   lng: number;
   label?: string;
-  kind?: 'pickup' | 'dropoff' | 'rider' | 'pin';
+  kind?: 'pickup' | 'dropoff' | 'rider' | 'idle' | 'pin';
   stale?: boolean;
   selected?: boolean;
 }
@@ -25,6 +25,7 @@ const COLORS: Record<string, string> = {
   pickup: '#5B3DF5',
   dropoff: '#19C6A5',
   rider: '#5B3DF5',
+  idle: '#6366F1',
   pin: '#EF4444',
 };
 
@@ -43,7 +44,11 @@ function icon(kind: string, stale?: boolean, selected?: boolean) {
 function FitBounds({ points, fitKey, center }: { points?: [number, number][]; fitKey?: string | null; center?: [number, number] }) {
   const map = useMap();
   useEffect(() => {
-    if (points && points.length > 1 && fitKey) {
+    if (points && points.length >= 1 && fitKey) {
+      if (points.length === 1) {
+        map.setView(points[0], 15, { animate: true });
+        return;
+      }
       map.fitBounds(points, { padding: [48, 48] });
       return;
     }

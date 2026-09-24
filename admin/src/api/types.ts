@@ -137,6 +137,10 @@ export interface PartnerListItem {
   week_earnings_cents: number;
   payout_pending: boolean;
   active_order_id: number | null;
+  last_lat: number | null;
+  last_lng: number | null;
+  location_updated_at: string | null;
+  location_is_stale: boolean;
 }
 
 export interface AdminDeliveryRow {

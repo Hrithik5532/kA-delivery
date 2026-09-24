@@ -5,6 +5,7 @@ import { Page } from '@/components/Layout';
 import { AsyncView } from '@/ui/kit';
 import { GooglePlaceSearch } from '@/components/GooglePlaceSearch';
 import { MapView, type MapMarker } from '@/components/MapView';
+import { fetchRoadRoute } from '@/lib/directions';
 import { config } from '@/config';
 import type { TestDelivery } from '@/api/types';
 
@@ -12,6 +13,15 @@ type Pt = { lat: number; lng: number };
 
 function isValidCoord(n: number) {
   return Number.isFinite(n);
+}
+
+function kmBetween(a: Pt, b: Pt) {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
 export function TestOrders() {
@@ -74,6 +84,30 @@ function CreateForm() {
   );
   const fitKey = `${pickup.lat},${pickup.lng}|${dropoff.lat},${dropoff.lng}|${picking}`;
 
+  // Straight line shown immediately; upgraded to the shortest road route once OSRM responds.
+  const straightLine = useMemo<[number, number][]>(
+    () => [[pickup.lat, pickup.lng], [dropoff.lat, dropoff.lng]],
+    [pickup.lat, pickup.lng, dropoff.lat, dropoff.lng],
+  );
+  const [roadRoute, setRoadRoute] = useState<[number, number][] | null>(null);
+
+  useEffect(() => {
+    if (!isValidCoord(pickup.lat) || !isValidCoord(dropoff.lat)) {
+      setRoadRoute(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void fetchRoadRoute(pickup, dropoff, controller.signal).then((res) => {
+        setRoadRoute(res && res.points.length > 1 ? res.points : null);
+      });
+    }, 350); // debounce rapid map clicks / edits
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [pickup.lat, pickup.lng, dropoff.lat, dropoff.lng]);
+
   const markers: MapMarker[] = [
     { ...pickup, kind: 'pickup', label: form.pickup_label, selected: picking === 'pickup' },
     { ...dropoff, kind: 'dropoff', label: form.dropoff_label, selected: picking === 'dropoff' },
@@ -99,6 +133,12 @@ function CreateForm() {
     }
   };
 
+  const defaultDrop = useMemo(
+    () => ({ lat: config.mapCenter[0] + 0.01, lng: config.mapCenter[1] + 0.01 }),
+    [],
+  );
+  const dropoffLooksUnset = kmBetween(dropoff, defaultDrop) < 0.05 && kmBetween(pickup, dropoff) > 50;
+
   const pickingLabel = picking === 'pickup' ? 'pickup (restaurant / kitchen)' : 'drop-off (customer)';
 
   return (
@@ -106,6 +146,11 @@ function CreateForm() {
       <h3 style={{ marginTop: 0 }}>New test delivery</h3>
       {msg && <div className="card" style={{ background: '#dcfce7', marginBottom: 12 }}>{msg}</div>}
       {err && <div className="card" style={{ background: '#fee2e2', marginBottom: 12 }}>{err}</div>}
+      {dropoffLooksUnset && (
+        <div className="card" style={{ background: '#fff8e6', borderColor: '#fde68a', marginBottom: 12 }}>
+          Drop-off coordinates still look like the default map center. Switch to <b>Set drop-off</b>, search the customer address, and confirm lat/lng before creating.
+        </div>
+      )}
 
       <div className="row" style={{ marginBottom: 8 }}>
         <button className={`btn sm ${picking === 'pickup' ? '' : 'secondary'}`} onClick={() => setPicking('pickup')}>
@@ -136,7 +181,7 @@ function CreateForm() {
           center={mapCenter}
           fitPoints={fitPoints}
           fitKey={fitKey}
-          route={[[pickup.lat, pickup.lng], [dropoff.lat, dropoff.lng]]}
+          route={roadRoute ?? straightLine}
         />
       </div>
 
@@ -166,7 +211,7 @@ function CreateForm() {
       </div>
 
       {!review ? (
-        <button className="btn" onClick={() => setReview(true)} disabled={!isValidCoord(pickup.lat) || !isValidCoord(dropoff.lat)}>Review & create</button>
+        <button className="btn" onClick={() => setReview(true)} disabled={!isValidCoord(pickup.lat) || !isValidCoord(dropoff.lat) || dropoffLooksUnset}>Review & create</button>
       ) : (
         <div className="card" style={{ background: '#eeeafe' }}>
           <strong>Review</strong>
@@ -238,7 +283,7 @@ function PointFields({
 }
 
 function TestList() {
-  const { data, loading, error, stale, reload } = useAsync(() => api.testOrders(), [], 8000);
+  const { data, loading, error, stale, reload } = useAsync(() => api.testOrders(), [], config.liveTrackingPollMs);
   useEffect(() => {
     const h = () => reload();
     window.addEventListener('testorders:refresh', h);
