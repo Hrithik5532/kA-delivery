@@ -289,8 +289,8 @@ export interface DeliveryCompletion {
   active_minutes: number;
   estimated_minutes: number;
   minutes_faster: number;
-  rider_rating: number;
-  rating_comment: string;
+  rider_rating?: number | null;
+  rating_comment?: string | null;
   distance_km: number;
   payout: PayoutBreakdown;
   pending_stops: number;

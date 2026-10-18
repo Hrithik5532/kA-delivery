@@ -1,8 +1,9 @@
 /**
  * Typed API client for the delivery partner (rider) backend.
  */
+import { File as FsFile, UploadType } from 'expo-file-system';
 import { config } from '@/config';
-import type { DeliveryHistoryResponse, HistoryPeriod, HistoryStatus, 
+import type { DeliveryHistoryResponse, HistoryPeriod, HistoryStatus,
   Batch,
   DeliveryCompletion,
   DeliveryHandover,
@@ -94,6 +95,130 @@ function extractDetail(data: unknown): string | null {
   return null;
 }
 
+type UploadOpts = { mimeType: string; fieldName?: string; parameters?: Record<string, string> };
+
+/**
+ * Whether the native `expo-file-system` File-upload API is usable at runtime.
+ * In a dev/prod build it is compiled in and works. In Expo Go the bundled
+ * filesystem module is older and the `File` constructor throws
+ * ("this.validatePath is not a function"), so we probe once and fall back to
+ * a pure-RN fetch upload there.
+ */
+let nativeFileUpload: boolean | null = null;
+function hasNativeFileUpload(): boolean {
+  if (nativeFileUpload !== null) return nativeFileUpload;
+  try {
+    new FsFile('file:///probe.jpg'); // ctor calls the native validatePath()
+    nativeFileUpload = true;
+  } catch {
+    nativeFileUpload = false;
+  }
+  return nativeFileUpload;
+}
+
+function fileNameFromUri(uri: string, mimeType: string): string {
+  const seg = (uri.split('/').pop() ?? '').split('?')[0];
+  if (seg.includes('.')) return seg;
+  return `upload.${mimeType.split('/')[1] || 'jpg'}`;
+}
+
+/** Native multipart upload — correct serialization, progress, large files. */
+async function uploadViaNativeFile<T>(path: string, fileUri: string, opts: UploadOpts): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const resp = await new FsFile(fileUri).upload(`${config.apiUrl}/api/v1${path}`, {
+    httpMethod: 'POST',
+    uploadType: UploadType.MULTIPART,
+    fieldName: opts.fieldName ?? 'file',
+    mimeType: opts.mimeType,
+    parameters: opts.parameters,
+    headers,
+  });
+  const data = resp.body ? safeJson(resp.body) : null;
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new ApiError(resp.status, extractDetail(data) ?? `Upload failed (${resp.status})`);
+  }
+  return data as T;
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
+}
+
+/**
+ * Pure-RN fallback for Expo Go. RN's `FormData` mis-serializes `{uri}` file
+ * parts on the New Architecture (backend sees `str` → "Expected UploadFile"),
+ * and RN can't build a byte-backed Blob from JS. So we read the file's real
+ * bytes and assemble the multipart body by hand. RN's networking base64-encodes
+ * an `ArrayBuffer`/typed-array body and sends it raw, so the file part carries
+ * actual bytes under the Content-Type/boundary we set.
+ */
+async function uploadViaFetch<T>(path: string, fileUri: string, opts: UploadOpts): Promise<T> {
+  let fileBytes: Uint8Array;
+  try {
+    const ab = await (await fetch(fileUri)).arrayBuffer(); // RN serves file:// URIs
+    fileBytes = new Uint8Array(ab);
+  } catch {
+    throw new ApiError(0, 'Could not read the selected image file');
+  }
+  if (fileBytes.length === 0) throw new ApiError(0, 'The selected image is empty');
+
+  const boundary = `----khanaBoundary${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  if (opts.parameters) {
+    for (const [k, v] of Object.entries(opts.parameters)) {
+      chunks.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
+    }
+  }
+  const filename = fileNameFromUri(fileUri, opts.mimeType);
+  chunks.push(
+    enc.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${opts.fieldName ?? 'file'}"; ` +
+        `filename="${filename}"\r\nContent-Type: ${opts.mimeType}\r\n\r\n`,
+    ),
+  );
+  chunks.push(fileBytes);
+  chunks.push(enc.encode(`\r\n--${boundary}--\r\n`));
+  const body = concatBytes(chunks);
+
+  const headers: Record<string, string> = {
+    'Content-Type': `multipart/form-data; boundary=${boundary}`,
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  let resp: Response;
+  try {
+    resp = await fetch(`${config.apiUrl}/api/v1${path}`, {
+      method: 'POST',
+      headers,
+      body: body as unknown as BodyInit,
+    });
+  } catch {
+    throw new ApiError(0, 'Network error — is the backend reachable?');
+  }
+  const text = await resp.text();
+  const data = text ? safeJson(text) : null;
+  if (!resp.ok) throw new ApiError(resp.status, extractDetail(data) ?? `Upload failed (${resp.status})`);
+  return data as T;
+}
+
+/**
+ * Multipart file upload. Uses the native `File.upload()` API in dev/prod builds
+ * and falls back to `fetch` + `FormData` in Expo Go (where the native API is
+ * unavailable). Extra form fields go in `parameters`.
+ */
+async function uploadMultipart<T>(path: string, fileUri: string, opts: UploadOpts): Promise<T> {
+  if (hasNativeFileUpload()) return uploadViaNativeFile<T>(path, fileUri, opts);
+  return uploadViaFetch<T>(path, fileUri, opts);
+}
+
 export const api = {
   loginRider: (email: string, password: string) =>
     request<Token>('/auth/rider/login', { method: 'POST', body: { email, password }, auth: false }),
@@ -120,34 +245,14 @@ export const api = {
     request<RiderProfileDetail>('/rider/profile', { method: 'PATCH', body }),
   documents: () => request<RiderDocument[]>('/rider/documents'),
   resubmit: () => request<VerificationStatus>('/rider/resubmit', { method: 'POST' }),
-  uploadDocument: async (
+  uploadDocument: (
     docType: string,
     file: { uri: string; name: string; type: string }
-  ): Promise<RiderDocument> => {
-    // React Native multipart upload: FormData with the file descriptor object.
-    const form = new FormData();
-    form.append('doc_type', docType);
-    // RN's fetch accepts { uri, name, type } as a file part.
-    form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
-    const headers: Record<string, string> = {};
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    let resp: Response;
-    try {
-      resp = await fetch(`${config.apiUrl}/api/v1/rider/documents`, {
-        method: 'POST',
-        headers, // do NOT set Content-Type; RN sets the multipart boundary.
-        body: form,
-      });
-    } catch {
-      throw new ApiError(0, 'Network error — is the backend reachable?');
-    }
-    const text = await resp.text();
-    const data = text ? safeJson(text) : null;
-    if (!resp.ok) {
-      throw new ApiError(resp.status, extractDetail(data) ?? `Upload failed (${resp.status})`);
-    }
-    return data as RiderDocument;
-  },
+  ): Promise<RiderDocument> =>
+    uploadMultipart<RiderDocument>('/rider/documents', file.uri, {
+      mimeType: file.type,
+      parameters: { doc_type: docType },
+    }),
   reportIssue: (deliveryId: number, issue_type: string, note: string) =>
     request<DeliveryIssue>(`/rider/deliveries/${deliveryId}/issues`, {
       method: 'POST',
@@ -175,14 +280,24 @@ export const api = {
     order_id?: number;
     file?: { uri: string; name: string; type: string };
   }) => {
-    const form = new FormData();
-    form.append('category', payload.category);
-    form.append('topic', payload.topic);
-    form.append('message', payload.message);
-    if (payload.order_id != null) form.append('order_id', String(payload.order_id));
+    const parameters: Record<string, string> = {
+      category: payload.category,
+      topic: payload.topic,
+      message: payload.message,
+    };
+    if (payload.order_id != null) parameters.order_id = String(payload.order_id);
+
+    // With an attachment: use the native multipart file upload (RN fetch/legacy
+    // uploadAsync both fail in Expo Go SDK 57). Without one: a text-only
+    // FormData part serializes fine over fetch.
     if (payload.file) {
-      form.append('file', { uri: payload.file.uri, name: payload.file.name, type: payload.file.type } as unknown as Blob);
+      return uploadMultipart<SupportTicket>('/rider/support/tickets', payload.file.uri, {
+        mimeType: payload.file.type,
+        parameters,
+      });
     }
+    const form = new FormData();
+    for (const [key, value] of Object.entries(parameters)) form.append(key, value);
     const headers: Record<string, string> = {};
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
     let resp: Response;
@@ -241,17 +356,10 @@ export const api = {
     request<DeliveryHandover>(`/deliveries/${deliveryId}/handover`),
   verifyDeliveryOtp: (deliveryId: number, otp: string) =>
     request<VerifyOtpResult>(`/deliveries/${deliveryId}/verify-otp`, { method: 'POST', body: { otp } }),
-  uploadDeliveryPhoto: async (deliveryId: number, file: { uri: string; name: string; type: string }) => {
-    const form = new FormData();
-    form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
-    const headers: Record<string, string> = {};
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const resp = await fetch(`${config.apiUrl}/api/v1/deliveries/${deliveryId}/photo`, { method: 'POST', headers, body: form });
-    const text = await resp.text();
-    const data = text ? safeJson(text) : null;
-    if (!resp.ok) throw new ApiError(resp.status, extractDetail(data) ?? `Upload failed (${resp.status})`);
-    return data as DeliveryPhotoResult;
-  },
+  uploadDeliveryPhoto: (deliveryId: number, file: { uri: string; name: string; type: string }) =>
+    uploadMultipart<DeliveryPhotoResult>(`/deliveries/${deliveryId}/photo`, file.uri, {
+      mimeType: file.type,
+    }),
   deliveryCompletion: (deliveryId: number) =>
     request<DeliveryCompletion>(`/deliveries/${deliveryId}/completion`),
   riderWallet: () => request<WalletDetails>('/rider/wallet'),

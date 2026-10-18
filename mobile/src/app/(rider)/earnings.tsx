@@ -84,8 +84,9 @@ export default function Earnings() {
   const onlineLabel = isWeekly ? weekly.online_label : daily.online_label;
   const avgCents = isWeekly ? weekly.avg_per_delivery_cents : (trips > 0 ? Math.round(totalCents / trips) : 0);
 
-  const activeIncentives = data.incentives.filter((i) => i.status === 'active');
-  const awardedIncentives = data.incentives.filter((i) => i.status === 'awarded');
+  const incentives = data.incentives ?? [];
+  const activeIncentives = incentives.filter((i) => i.status === 'active');
+  const awardedIncentives = incentives.filter((i) => i.status === 'awarded');
 
   return (
     <View style={styles.screen}>

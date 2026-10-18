@@ -130,8 +130,10 @@ function SuccessScreen({
               <Text variant="caption" style={styles.statLabel}>RIDER RATING</Text>
               <Ionicons name="star" size={16} color={colors.tertiary} />
             </View>
-            <Text variant="h2">{data.rider_rating.toFixed(1)} ⭐</Text>
-            <Text variant="caption" style={{ color: colors.textMuted }}>{data.rating_comment}</Text>
+            <Text variant="h2">{typeof data.rider_rating === 'number' ? `${data.rider_rating.toFixed(1)} ⭐` : '—'}</Text>
+            <Text variant="caption" style={{ color: colors.textMuted }}>
+              {data.rating_comment ?? 'No rating yet'}
+            </Text>
           </PartnerCard>
         </View>
 
