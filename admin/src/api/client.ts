@@ -162,6 +162,8 @@ export const api = {
     request<CandidateRider[]>(`/admin/orders/${orderId}/candidate-riders`),
   assignOrder: (orderId: number, body: AssignOrderPayload) =>
     request<OrderDetail>(`/admin/orders/${orderId}/assign`, { method: 'POST', body }),
+  unassignOrder: (orderId: number) =>
+    request<OrderDetail>(`/admin/orders/${orderId}/unassign`, { method: 'POST' }),
   setOrderExternalStatus: (orderId: number, status: ExternalDeliveryStatus) =>
     request<OrderDetail>(`/admin/orders/${orderId}/external-status`, { method: 'POST', body: { status } }),
   issues: (status?: string) => request<Page<DeliveryIssue>>(`/admin/issues${qs({ status, limit: 200 })}`),

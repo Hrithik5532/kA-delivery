@@ -204,3 +204,12 @@ def drive_to_out_for_delivery(
     assert pick.status_code == 200, pick.text
 
     return {"order_id": order_id, "delivery_id": delivery_id, "otp": otp}
+
+
+def upload_delivery_photo(client: TestClient, rtok: str, delivery_id: int):
+    """Attach the required proof-of-delivery photo. Returns the raw response."""
+    return client.post(
+        f"/api/v1/deliveries/{delivery_id}/photo",
+        headers=_auth(rtok),
+        files={"file": ("proof.jpg", b"\xff\xd8\xff\xe0proof-of-delivery", "image/jpeg")},
+    )

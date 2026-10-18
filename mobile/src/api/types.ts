@@ -137,14 +137,14 @@ export interface RiderOrderItem {
 export interface ActiveDeliveryMeta {
   phase: string;
   status_label: string;
-  eta_minutes: number;
-  distance_remaining_km: number;
-  route_label: string;
-  deliver_by_label: string;
+  eta_minutes: number | null;
+  distance_remaining_km: number | null;
+  route_label: string | null;
+  deliver_by_label: string | null;
   rider_lat: number | null;
   rider_lng: number | null;
   arrived_at_drop: boolean;
-  helper_text: string;
+  helper_text: string | null;
 }
 
 export interface DeliveryStop {

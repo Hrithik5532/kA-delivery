@@ -663,6 +663,20 @@ def assign_order(
     return _order_detail_out(db, order)
 
 
+@router.post("/orders/{order_id}/unassign", response_model=OrderDetailOut)
+def cancel_order_assignment(
+    order_id: int,
+    admin: User = Depends(_ops),
+    db: Session = Depends(get_db),
+) -> OrderDetailOut:
+    """Cancel the KA partner offer/assignment and reopen the order for reassignment."""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order = order_admin_service.cancel_internal_assignment(db, order, admin)
+    return _order_detail_out(db, order)
+
+
 @router.post("/orders/{order_id}/external-status", response_model=OrderDetailOut)
 def set_order_external_status(
     order_id: int,

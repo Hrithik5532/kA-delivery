@@ -232,10 +232,10 @@ export const api = {
     }),
   pickup: (deliveryId: number) =>
     request<{ batch_id: number; status: string }>(`/deliveries/${deliveryId}/pickup`, { method: 'POST' }),
-  complete: (deliveryId: number, otp: string) =>
+  complete: (deliveryId: number) =>
     request<DeliveryCompletion>(`/deliveries/${deliveryId}/complete`, {
       method: 'POST',
-      body: { otp },
+      body: {},
     }),
   deliveryHandover: (deliveryId: number) =>
     request<DeliveryHandover>(`/deliveries/${deliveryId}/handover`),

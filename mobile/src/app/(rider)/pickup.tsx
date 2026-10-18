@@ -25,6 +25,7 @@ import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
 import { config } from '@/config';
 import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
+import { openDirections } from '@/lib/navigation';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { colors, radius, spacing } from '@/theme';
 
@@ -178,9 +179,13 @@ export default function OrderPickup() {
     setConfirmOpen(true);
   };
 
-  const openMaps = () => {
-    if (!messPoint) return;
-    void Linking.openURL(`https://maps.google.com/?q=${messPoint.lat},${messPoint.lng}`);
+  const openMaps = async () => {
+    if (!messPoint) {
+      feedback.info('Pickup location is not available yet.', 'Unavailable');
+      return;
+    }
+    const opened = await openDirections(messPoint);
+    if (!opened) feedback.error('Could not open Google Maps for navigation.');
   };
 
   const callMerchant = () => {

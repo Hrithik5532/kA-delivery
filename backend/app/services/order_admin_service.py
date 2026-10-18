@@ -458,6 +458,56 @@ def assign_internal(db: Session, order: Order, admin: User, rider_id: int) -> Or
     return order
 
 
+def cancel_internal_assignment(db: Session, order: Order, admin: User) -> Order:
+    """Admin cancels a KA partner offer/assignment and reopens the order.
+
+    Allowed while the offer is pending or the partner has accepted but NOT yet
+    picked up; once picked up the assignment is locked. The delivery is returned
+    to the dispatch pool so another partner can be offered.
+    """
+    if order.status in (OrderStatus.delivered, OrderStatus.cancelled):
+        raise HTTPException(status_code=409, detail=f"Order already {order.status.value}")
+
+    delivery = _delivery_for(db, order.id)
+    if delivery is None or delivery.status in (
+        DeliveryStatus.cancelled,
+        DeliveryStatus.delivered,
+    ):
+        raise HTTPException(status_code=409, detail="No active KA partner assignment to cancel")
+    if delivery.status in (DeliveryStatus.picked_up, DeliveryStatus.delivering):
+        raise HTTPException(
+            status_code=409,
+            detail="Partner has already picked up this order; it can no longer be cancelled.",
+        )
+
+    old_batch = db.get(DeliveryBatch, delivery.batch_id)
+    if old_batch is not None:
+        for off in old_batch.offers:
+            if off.status == OfferStatus.sent:
+                off.status = OfferStatus.expired
+                off.responded_at = utcnow()
+
+    # Return this stop to the dispatch pool (fresh open batch, rider cleared,
+    # order back to `ready`); leaves any sibling stops in the old batch untouched.
+    dispatch_service.release_delivery_to_dispatch(db, delivery)
+    if old_batch is not None:
+        dispatch_service.close_empty_batch(db, old_batch)
+
+    audit_service.record(
+        db,
+        actor_user_id=admin.id,
+        action="order_assignment_cancelled",
+        target_type="order",
+        target_id=order.id,
+        order_id=order.id,
+        detail="admin cancelled KA assignment",
+    )
+    db.commit()
+    manager.publish(order.id)
+    db.refresh(order)
+    return order
+
+
 def void_internal_dispatch(db: Session, order: Order) -> None:
     """Cancel any internal batch/delivery/open offers for an order."""
     delivery = _delivery_for(db, order.id)

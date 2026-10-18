@@ -119,6 +119,61 @@ def test_admin_active_deliveries_and_tracking(client):
     assert snap.json()["order_id"] == ids["order_id"]
 
 
+def test_admin_cancel_offer_reopens_for_reassignment(client):
+    from tests.helpers import mess_advance, place_order
+
+    rtok = login(client, "rider", "rider@digimess.app")
+    client.post("/api/v1/rider/online", headers=_auth(rtok))
+    admin = admin_token(client)
+
+    order = place_order()
+    oid = order["id"]
+    for step in ("accept", "prepare", "ready"):
+        mess_advance(oid, step)
+
+    cands = client.get(f"/api/v1/admin/orders/{oid}/candidate-riders", headers=_auth(admin)).json()
+    assert cands, "expected an online approved candidate"
+    rid = cands[0]["rider_id"]
+
+    offer = client.post(
+        f"/api/v1/admin/orders/{oid}/assign",
+        headers=_auth(admin),
+        json={"mode": "internal", "rider_id": rid},
+    )
+    assert offer.status_code == 200, offer.text
+    # Partner is attached (offer pending → offered_rider_id, or already accepted → rider_id).
+    oa = offer.json()["assignment"]
+    assert rid in (oa.get("rider_id"), oa.get("offered_rider_id"))
+
+    cancel = client.post(f"/api/v1/admin/orders/{oid}/unassign", headers=_auth(admin))
+    assert cancel.status_code == 200, cancel.text
+    a = cancel.json()["assignment"]
+    # Reopened: no partner is attached and no offer is pending.
+    assert a is None or (a.get("rider_id") is None and a.get("offer_pending") is not True)
+
+    # And another partner can be offered the same order.
+    reassign = client.post(
+        f"/api/v1/admin/orders/{oid}/assign",
+        headers=_auth(admin),
+        json={"mode": "internal", "rider_id": rid},
+    )
+    assert reassign.status_code == 200, reassign.text
+    ra = reassign.json()["assignment"]
+    assert rid in (ra.get("rider_id"), ra.get("offered_rider_id"))
+
+
+def test_admin_cannot_cancel_after_pickup(client):
+    from tests.helpers import drive_to_out_for_delivery
+
+    rtok = login(client, "rider", "rider@digimess.app")
+    ids = drive_to_out_for_delivery(client, rtok)  # reaches picked_up
+    admin = admin_token(client)
+
+    resp = client.post(f"/api/v1/admin/orders/{ids['order_id']}/unassign", headers=_auth(admin))
+    assert resp.status_code == 409
+    assert "picked up" in resp.json()["detail"].lower()
+
+
 def test_suspend_and_reactivate_partner(client):
     admin = admin_token(client)
     partners = client.get("/api/v1/admin/partners", headers=_auth(admin)).json()

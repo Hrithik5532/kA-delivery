@@ -119,6 +119,12 @@ def save_delivery_photo(delivery: Delivery, upload: UploadFile) -> dict:
     }
 
 
+def assert_photo_ready(delivery: Delivery) -> None:
+    """Proof of delivery is the uploaded doorstep photo; it is required to complete."""
+    if not delivery.delivery_photo_path:
+        raise HTTPException(status_code=400, detail="Add a delivery photo first")
+
+
 def assert_otp_ready(delivery: Delivery, order: Order, otp: str | None) -> None:
     if _is_otp_verified(delivery):
         return

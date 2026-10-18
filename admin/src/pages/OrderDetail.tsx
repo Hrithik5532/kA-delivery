@@ -214,12 +214,22 @@ function AssignmentPanel({ order, onChanged }: { order: OrderDetail; onChanged: 
   );
 }
 
+const PICKED_UP_STATUSES = ['picked_up', 'delivering', 'delivered'];
+
 function KaAssign({ order, onChanged }: { order: OrderDetail; onChanged: () => void }) {
   const [data, setData] = useState<CandidateRider[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+
+  const a = order.assignment;
+  const offerPending = a?.offer_pending === true;
+  const assigned = a?.rider_id != null && !offerPending;
+  const pickedUp = assigned && PICKED_UP_STATUSES.includes(a?.delivery_status ?? '');
+  // While an offer is live or a partner is on the job, we show the current
+  // assignment + a Cancel action instead of the "Send offer" candidate list.
+  const showAssignment = offerPending || assigned;
 
   const loadCandidates = () => {
     setLoading(true);
@@ -228,7 +238,11 @@ function KaAssign({ order, onChanged }: { order: OrderDetail; onChanged: () => v
       .catch((e) => setErr(e instanceof Error ? e.message : 'Failed to load partners'))
       .finally(() => setLoading(false));
   };
-  useEffect(() => { loadCandidates(); /* eslint-disable-next-line */ }, [order.order_id]);
+  useEffect(() => {
+    if (showAssignment) { setLoading(false); return; }
+    loadCandidates();
+    /* eslint-disable-next-line */
+  }, [order.order_id, showAssignment]);
 
   const offer = async (riderId: number) => {
     setBusy(true); setErr(null); setMsg(null);
@@ -239,6 +253,45 @@ function KaAssign({ order, onChanged }: { order: OrderDetail; onChanged: () => v
     } catch (e) { setErr(e instanceof Error ? e.message : 'Assign failed'); }
     finally { setBusy(false); }
   };
+
+  const cancelAssignment = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await api.unassignOrder(order.order_id);
+      onChanged();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Cancel failed'); }
+    finally { setBusy(false); }
+  };
+
+  if (showAssignment) {
+    return (
+      <div>
+        {err && <div className="card" style={{ background: '#fee2e2', margin: '8px 0' }}>{err}</div>}
+        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 13 }}>
+            <div><strong>{a?.rider_name ?? 'Partner'}</strong></div>
+            <div className="muted">
+              {offerPending
+                ? 'Offer sent — waiting for the partner to accept.'
+                : `Accepted · ${(a?.delivery_status ?? 'assigned').replace('_', ' ')}`}
+            </div>
+          </div>
+          {pickedUp ? (
+            <span className="muted" style={{ fontSize: 12 }}>Picked up — locked</span>
+          ) : (
+            <button className="btn danger sm" disabled={busy} onClick={cancelAssignment}>
+              {busy ? 'Cancelling…' : offerPending ? 'Cancel offer' : 'Cancel assignment'}
+            </button>
+          )}
+        </div>
+        {!pickedUp && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            Cancelling returns the order to the pool so you can offer another partner.
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
