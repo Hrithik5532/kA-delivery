@@ -5,6 +5,7 @@ import { api } from '@/api/client';
 import type { AdminDeliveryRow, PartnerDeliveryRow, PartnerDetail, PartnerUpdatePayload } from '@/api/types';
 import { formatGmv, money } from '@/theme';
 import { PartnerSlotsPanel } from '@/pages/ShiftSlots';
+import { LoginCodeCard } from '@/components/LoginCodeCard';
 import { AsyncView, ReasonModal } from '@/ui/kit';
 
 type Tab = 'overview' | 'active' | 'history' | 'bank' | 'wallet';
@@ -462,6 +463,7 @@ export function PartnerProfile() {
               </div>
 
               <aside className="pp-sidebar">
+                <LoginCodeCard riderId={partner.rider_id} name={partner.full_name} suspended={!partner.account_active} />
                 <PartnerSlotsPanel riderId={partner.rider_id} />
                 <div className="pp-wallet-card">
                   <h3>Partner Wallet Balance</h3>

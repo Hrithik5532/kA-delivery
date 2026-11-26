@@ -107,7 +107,7 @@ export function RiderLoginForm() {
           <View style={styles.otpNote}>
             <Ionicons name="shield-checkmark" size={14} color={colors.secondary} />
             <Text variant="caption" style={styles.otpNoteText}>
-              We will send a 6-digit OTP to verify your account
+              You'll enter a 4-digit login code next (from SMS or the KA operations team)
             </Text>
           </View>
 

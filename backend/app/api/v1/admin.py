@@ -32,6 +32,7 @@ from app.models.mess import Mess
 from app.models.order import Order
 from app.schemas.maps import PlaceAutocompleteIn, PlaceDetailsOut, PlaceSuggestionOut
 from app.schemas.admin import (
+    PartnerLoginCodeOut,
     FleetLeaderOut,
     ActiveDeliveryOut,
     AdminDeliveryRow,
@@ -516,6 +517,40 @@ def add_partner_note(
 ) -> PartnerDetail:
     partner_admin_service.add_admin_note(db, rider_id, admin.id, data.reason)
     return partner_detail(rider_id, admin, db)
+
+
+@router.post("/partners/{rider_id}/login-code", response_model=PartnerLoginCodeOut)
+def create_partner_login_code(
+    rider_id: int, admin: User = Depends(_partner_write), db: Session = Depends(get_db),
+) -> PartnerLoginCodeOut:
+    """Generate a one-time app login code for a partner (no SMS gateway yet).
+
+    Ops read it out / send it on WhatsApp; the partner enters their phone and
+    this code on the app's OTP screen. The code itself is never audited.
+    """
+    from app.config import settings
+    from app.services.auth_service import AuthError, issue_admin_login_code
+
+    user = db.get(User, rider_id)
+    if user is None or user.rider_profile is None:
+        raise HTTPException(status_code=404, detail="Partner not found")
+    if not user.is_active:
+        raise HTTPException(status_code=409, detail="Partner is suspended; reactivate them first")
+    try:
+        code, expires_at = issue_admin_login_code(db, user)
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    audit_service.record(
+        db, actor_user_id=admin.id, action="partner_login_code_issued",
+        target_type="partner", target_id=rider_id,
+    )
+    db.commit()
+    return PartnerLoginCodeOut(
+        code=code,
+        phone=user.phone or "",
+        expires_at=expires_at,
+        valid_minutes=settings.admin_login_code_expiry_minutes,
+    )
 
 
 @router.post("/partners/{rider_id}/suspend", response_model=PartnerDetail)

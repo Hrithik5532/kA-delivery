@@ -35,6 +35,11 @@ ops assign a delivery partner, and the platform polls
   (Profile → Working Slots). Partners are switched online when a selected slot
   starts and offline when it ends (after any delivery in progress), and cannot
   go online outside their slots. Deactivate all slots to disable.
+- **Admin login codes**: with no SMS gateway, ops open a partner's profile →
+  **App login code** → **Generate** and share the 4-digit code (copy or
+  WhatsApp). The partner enters their phone + code in the app. Codes are
+  one-time, expire in 15 minutes (`ADMIN_LOGIN_CODE_EXPIRY_MINUTES`) and lock
+  after 5 wrong tries.
 - **External couriers**: when a rider is booked on Porter/Rapido/etc., ops enter
   the rider's name, contact and vehicle on the order page; the partner tracking
   API returns them so the consumer app shows them automatically.

@@ -534,3 +534,10 @@ export interface WithdrawalDetail extends WithdrawalRequest {
   risk: { score: number; label: string; checks: { label: string; ok: boolean }[] };
   reject_reasons: string[];
 }
+
+export interface PartnerLoginCode {
+  code: string;
+  phone: string;
+  expires_at: string;
+  valid_minutes: number;
+}

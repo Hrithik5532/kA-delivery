@@ -19,6 +19,7 @@ import type {
   PartnerListItem,
   PartnerApiKey,
   PartnerApiKeySecret,
+  PartnerLoginCode,
   RiderSlots,
   ShiftSlot,
   ShiftSlotPayload,
@@ -196,6 +197,8 @@ export const api = {
     request<ShiftSlot>(`/admin/shift-slots/${id}`, { method: 'PATCH', body }),
   deleteShiftSlot: (id: number) =>
     request<void>(`/admin/shift-slots/${id}`, { method: 'DELETE' }),
+  partnerLoginCode: (riderId: number) =>
+    request<PartnerLoginCode>(`/admin/partners/${riderId}/login-code`, { method: 'POST' }),
   partnerSlots: (riderId: number) => request<RiderSlots>(`/admin/partners/${riderId}/slots`),
   setPartnerSlots: (riderId: number, slotIds: number[]) =>
     request<RiderSlots>(`/admin/partners/${riderId}/slots`, { method: 'PUT', body: { slot_ids: slotIds } }),

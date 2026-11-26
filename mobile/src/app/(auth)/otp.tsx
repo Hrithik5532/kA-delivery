@@ -11,15 +11,17 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Text } from '@/components/ui/Text';
 import { ErrorState } from '@/components/ErrorState';
 import { FeedbackBanner } from '@/components/FeedbackBanner';
-import { config } from '@/config';
 import { colors, spacing } from '@/theme';
 
 export default function RiderOtpScreen() {
   const router = useRouter();
-  const { phone: phoneParam } = useLocalSearchParams<{ phone?: string }>();
+  const { phone: phoneParam, dev: devParam } = useLocalSearchParams<{ phone?: string; dev?: string }>();
   const { loginRiderOtp, requestRiderOtp } = useAuth();
   const [phone] = useState(() => (phoneParam ?? '').replace(/\s/g, ''));
-  const [code, setCode] = useState(config.defaultOtp);
+  // Only pre-fill when the backend handed back a dev code (development builds);
+  // in production the partner types the code ops gave them.
+  const [devCode, setDevCode] = useState(() => (devParam ?? '').slice(0, 4));
+  const [code, setCode] = useState(devCode);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resendSecs, setResendSecs] = useState(30);
@@ -47,7 +49,10 @@ export default function RiderOtpScreen() {
     setError(null);
     try {
       const dev = await requestRiderOtp(phone);
-      if (dev) setCode(dev.slice(0, 4));
+      if (dev) {
+        setDevCode(dev.slice(0, 4));
+        setCode(dev.slice(0, 4));
+      }
       setResendSecs(30);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not resend OTP');
@@ -63,10 +68,19 @@ export default function RiderOtpScreen() {
       </View>
       <View style={styles.content}>
         <Text variant="bodySmall" style={{ color: colors.textMuted }}>
-          We've sent a verification code to <Text variant="label">{masked}</Text>
+          Enter the 4-digit login code for <Text variant="label">{masked}</Text>
         </Text>
         {error ? <ErrorState message={error} variant="inline" title="Verification failed" /> : null}
-        <FeedbackBanner severity="info" message={`Use OTP ${config.defaultOtp} in development.`} style={{ marginTop: spacing.md }} />
+        {devCode ? (
+          <FeedbackBanner severity="info" message={`Development code: ${devCode}`} style={{ marginTop: spacing.md }} />
+        ) : (
+          <FeedbackBanner
+            severity="info"
+            title="Don't have a code?"
+            message="Ask the KA Delivery operations team. They can send you a one-time login code on call or WhatsApp."
+            style={{ marginTop: spacing.md }}
+          />
+        )}
         <PartnerCard variant="lowest" style={{ marginTop: spacing.lg }}>
           <OtpInput value={code} onChange={setCode} error={error} />
           <View style={styles.resendRow}>

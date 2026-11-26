@@ -393,3 +393,47 @@ def test_suspending_partner_releases_accepted_order(client, partner_key):
     detail = client.get(f"/api/v1/admin/orders/{order_id}", headers=_auth(atok)).json()
     assert detail["status"] == "ready"
     assert detail["assignment"]["rider_id"] is None
+
+
+# --- Admin-issued login code ----------------------------------------------
+
+def test_admin_login_code_lets_partner_sign_in(client, monkeypatch):
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models.user import User
+
+    monkeypatch.setattr(settings, "default_otp", "")  # no dev bypass
+    atok = _admin(client)
+    with SessionLocal() as db:
+        rider = db.query(User).filter(User.email == "rider@digimess.app").one()
+        rid, phone = rider.id, rider.phone
+
+    resp = client.post(f"/api/v1/admin/partners/{rid}/login-code", headers=_auth(atok))
+    assert resp.status_code == 200, resp.text
+    code = resp.json()["code"]
+    assert len(code) == 4 and code.isdigit()
+
+    # Rider taps "Send OTP" afterwards (creates a newer code) - the ops code still works.
+    client.post("/api/v1/auth/rider/otp/request", json={"phone": phone})
+    ok = client.post("/api/v1/auth/rider/otp/verify", json={"phone": phone, "code": code})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["access_token"]
+
+    # One-time: the same code cannot be reused.
+    again = client.post("/api/v1/auth/rider/otp/verify", json={"phone": phone, "code": code})
+    assert again.status_code == 401
+
+
+def test_login_code_requires_partner_write_tier(client):
+    from app.database import SessionLocal
+    from app.models.enums import AdminRole
+    from app.models.user import User
+    from app.services.auth_service import hash_password
+
+    with SessionLocal() as db:
+        db.add(User(email="support2@x.app", full_name="S", roles="admin",
+                    admin_role=AdminRole.support, hashed_password=hash_password("password123")))
+        rid = db.query(User).filter(User.email == "rider@digimess.app").one().id
+        db.commit()
+    stok = login(client, "admin", "support2@x.app")
+    assert client.post(f"/api/v1/admin/partners/{rid}/login-code", headers=_auth(stok)).status_code == 403

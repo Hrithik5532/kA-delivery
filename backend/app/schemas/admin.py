@@ -193,6 +193,15 @@ class PartnerUpdateRequest(BaseModel):
     vehicle_type: str | None = None
 
 
+class PartnerLoginCodeOut(BaseModel):
+    """One-time code ops share with a partner to sign in on the app."""
+
+    code: str
+    phone: str
+    expires_at: datetime
+    valid_minutes: int
+
+
 class PartnerDetail(PartnerListItem):
     license_number: str
     correction_reason: str | None = None
