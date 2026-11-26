@@ -66,4 +66,9 @@ def sweep_stale_online(db: Session, now: datetime | None = None) -> int:
             flipped += 1
     if flipped:
         db.commit()
+    # Apply shift-slot rules too (offline once a slot ends, online when one
+    # starts) so dispatch and dashboards never see an out-of-slot rider.
+    from app.services import shift_service
+
+    shift_service.tick(db, now)
     return flipped

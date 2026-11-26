@@ -1,8 +1,10 @@
+import { parseApiDate } from '@/lib/time';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
 import type { AdminDeliveryRow, PartnerDeliveryRow, PartnerDetail, PartnerUpdatePayload } from '@/api/types';
 import { formatGmv, money } from '@/theme';
+import { PartnerSlotsPanel } from '@/pages/ShiftSlots';
 import { AsyncView, ReasonModal } from '@/ui/kit';
 
 type Tab = 'overview' | 'active' | 'history' | 'bank' | 'wallet';
@@ -32,7 +34,7 @@ function partnerId(p: PartnerDetail) {
 
 function fmt(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return parseApiDate(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function filterWalletTxns(txns: PartnerDetail['wallet_transactions'], filter: WalletFilter) {
@@ -460,6 +462,7 @@ export function PartnerProfile() {
               </div>
 
               <aside className="pp-sidebar">
+                <PartnerSlotsPanel riderId={partner.rider_id} />
                 <div className="pp-wallet-card">
                   <h3>Partner Wallet Balance</h3>
                   <div className="pp-wallet-total">{money(partner.wallet_total_cents)}</div>

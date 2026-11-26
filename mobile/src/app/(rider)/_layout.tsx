@@ -49,6 +49,7 @@ export default function RiderLayout() {
       <Tabs.Screen name="documents" options={{ href: null }} />
       <Tabs.Screen name="help" options={{ href: null }} />
       <Tabs.Screen name="wallet" options={{ href: null }} />
+      <Tabs.Screen name="slots" options={{ href: null }} />
     </Tabs>
     </RiderLiveLocation>
   );

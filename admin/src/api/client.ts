@@ -19,6 +19,9 @@ import type {
   PartnerListItem,
   PartnerApiKey,
   PartnerApiKeySecret,
+  RiderSlots,
+  ShiftSlot,
+  ShiftSlotPayload,
   Token,
   WithdrawalRequest,
   WithdrawalSummary,
@@ -184,6 +187,18 @@ export const api = {
     request<{ count: number }>('/admin/withdrawals/bulk-approve', { method: 'POST', body: { ids } }),
 
   activeDeliveries: () => request<ActiveDelivery[]>('/admin/deliveries/active'),
+
+  // Shift slots
+  shiftSlots: () => request<ShiftSlot[]>('/admin/shift-slots'),
+  createShiftSlot: (body: ShiftSlotPayload) =>
+    request<ShiftSlot>('/admin/shift-slots', { method: 'POST', body }),
+  updateShiftSlot: (id: number, body: ShiftSlotPayload) =>
+    request<ShiftSlot>(`/admin/shift-slots/${id}`, { method: 'PATCH', body }),
+  deleteShiftSlot: (id: number) =>
+    request<void>(`/admin/shift-slots/${id}`, { method: 'DELETE' }),
+  partnerSlots: (riderId: number) => request<RiderSlots>(`/admin/partners/${riderId}/slots`),
+  setPartnerSlots: (riderId: number, slotIds: number[]) =>
+    request<RiderSlots>(`/admin/partners/${riderId}/slots`, { method: 'PUT', body: { slot_ids: slotIds } }),
 
   // Partner API keys (super admin)
   apiKeys: () => request<PartnerApiKey[]>('/admin/api-keys'),

@@ -1,3 +1,4 @@
+import { parseApiDate } from '@/lib/time';
 import { useState } from 'react';
 import { api } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
@@ -18,7 +19,7 @@ export function Settings() {
 }
 
 function fmt(ts: string | null) {
-  return ts ? new Date(ts).toLocaleString() : '—';
+  return ts ? parseApiDate(ts).toLocaleString() : '—';
 }
 
 function ApiKeys() {

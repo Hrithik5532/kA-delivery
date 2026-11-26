@@ -1,3 +1,4 @@
+import { parseApiDate } from '@/lib/time';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -17,11 +18,9 @@ export function OrderDetailPage() {
   const [note, setNote] = useState('');
 
   const load = () => api.order(id).then(setO).catch((e) => setErr(e.message));
-  useEffect(() => { setO(null); setErr(null); void load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => { setO(null); setErr(null); if (!Number.isNaN(id)) void load(); /* eslint-disable-next-line */ }, [id]);
 
   const back = <button className="btn ghost sm" onClick={() => navigate('/orders')}>← Back to orders</button>;
-
-  if (Number.isNaN(id)) return <Page title="Order" action={back}><p className="muted">Invalid order id.</p></Page>;
 
   // The external API can omit coordinates (customer location is often null).
   const pickup = o?.mess && o.mess.lat != null && o.mess.lng != null ? { lat: o.mess.lat, lng: o.mess.lng } : null;
@@ -57,6 +56,9 @@ export function OrderDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng]);
 
+  // Guard after all hooks so the hook order never changes between renders.
+  if (Number.isNaN(id)) return <Page title="Order" action={back}><p className="muted">Invalid order id.</p></Page>;
+
   return (
     <Page
       title={o ? (o.external_order_ref ?? `Order #${o.order_id}`) : 'Order'}
@@ -77,7 +79,7 @@ export function OrderDetailPage() {
             </div>
             <span className="muted">
               {o.placed_at ? `Placed ${new Date(o.placed_at).toLocaleString()} · ` : ''}
-              Received {new Date(o.created_at).toLocaleString()}
+              Received {parseApiDate(o.created_at).toLocaleString()}
             </span>
           </div>
 
@@ -148,7 +150,7 @@ export function OrderDetailPage() {
                 {e.from_state && <span className="muted">{e.from_state} → {e.to_state}</span>}
                 {e.detail && <span className="muted"> · {e.detail}</span>}
                 {e.reason && <div className="muted">“{e.reason}”</div>}
-                <span className="muted" style={{ float: 'right', fontSize: 11 }}>{new Date(e.created_at).toLocaleTimeString()}</span>
+                <span className="muted" style={{ float: 'right', fontSize: 11 }}>{parseApiDate(e.created_at).toLocaleTimeString()}</span>
               </div>
             ))}
             {o.timeline.length === 0 && <p className="muted" style={{ margin: 8 }}>No events yet.</p>}
@@ -176,10 +178,14 @@ export function OrderDetailPage() {
 }
 
 const PROVIDERS: { value: ExternalProvider; label: string }[] = [
+  { value: 'porter', label: 'Porter' },
+  { value: 'rapido', label: 'Rapido' },
+  { value: 'uber', label: 'Uber' },
   { value: 'zomato', label: 'Zomato' },
   { value: 'swiggy', label: 'Swiggy' },
   { value: 'other', label: 'Other' },
 ];
+const VEHICLE_TYPES = ['bike', 'scooter', 'cycle', 'ev', 'auto', 'car', 'van'];
 const BLOCKED_EXTERNAL_STATUSES = ['REJECTED', 'CANCELLED'];
 const EXTERNAL_STEPS: ('assigned' | 'picked_up' | 'delivered')[] = ['assigned', 'picked_up', 'delivered'];
 
@@ -194,6 +200,13 @@ function AssignmentPanel({ order, onChanged }: { order: OrderDetail; onChanged: 
       <div className="pageheader" style={{ marginBottom: 8 }}>
         <h4 style={{ margin: 0 }}>Delivery assignment</h4>
         {a?.rider_name && <span className="muted">Rider: {a.rider_name}{a.offer_pending ? ' (offer sent)' : ''}</span>}
+        {order.fulfillment_type === 'external' && order.external_rider?.name && (
+          <span className="muted">
+            Rider: {order.external_rider.name}
+            {order.external_rider.phone ? ` · ${order.external_rider.phone}` : ''}
+            {order.external_rider.vehicle_number ? ` · ${order.external_rider.vehicle_number}` : ''}
+          </span>
+        )}
         {order.fulfillment_type === 'external' && <span className="badge" style={{ background: '#fef3c7', color: '#d97706' }}>{(order.external_provider ?? 'EXTERNAL').toUpperCase()}</span>}
       </div>
 
@@ -326,34 +339,92 @@ function KaAssign({ order, onChanged }: { order: OrderDetail; onChanged: () => v
 }
 
 function ExternalAssign({ order, onChanged }: { order: OrderDetail; onChanged: () => void }) {
-  const [provider, setProvider] = useState<ExternalProvider>((order.external_provider as ExternalProvider) ?? 'zomato');
+  const r = order.external_rider;
+  const [provider, setProvider] = useState<ExternalProvider>((order.external_provider as ExternalProvider) ?? 'porter');
   const [reference, setReference] = useState(order.external_reference ?? '');
   const [note, setNote] = useState(order.external_note ?? '');
+  const [riderName, setRiderName] = useState(r?.name ?? '');
+  const [riderPhone, setRiderPhone] = useState(r?.phone ?? '');
+  const [vehicleType, setVehicleType] = useState(r?.vehicle_type ?? 'bike');
+  const [vehicleNumber, setVehicleNumber] = useState(r?.vehicle_number ?? '');
+  const [trackingUrl, setTrackingUrl] = useState(r?.tracking_url ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const isExternal = order.fulfillment_type === 'external';
+  const kaPickedUp = order.fulfillment_type !== 'external' && PICKED_UP_STATUSES.includes(order.assignment?.delivery_status ?? '');
 
-  const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true); setErr(null);
-    try { await fn(); onChanged(); } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); } finally { setBusy(false); }
+  const phoneOk = !riderPhone.trim() || /^[0-9+\-\s()]{6,20}$/.test(riderPhone.trim());
+  const urlOk = !trackingUrl.trim() || /^https?:\/\/\S+$/.test(trackingUrl.trim());
+  const missingRider = !riderName.trim() || !riderPhone.trim();
+
+  const act = async (fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(true); setErr(null); setMsg(null);
+    try { await fn(); if (ok) setMsg(ok); onChanged(); } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); } finally { setBusy(false); }
   };
+
+  const save = () => act(() => api.assignOrder(order.order_id, {
+    mode: 'external',
+    provider,
+    reference: reference.trim() || undefined,
+    note: note.trim() || undefined,
+    rider_name: riderName.trim() || undefined,
+    rider_phone: riderPhone.trim() || undefined,
+    vehicle_type: vehicleType || undefined,
+    vehicle_number: vehicleNumber.trim() || undefined,
+    tracking_url: trackingUrl.trim() || undefined,
+  }), 'Saved — the rider details now show in the customer app.');
+
+  if (kaPickedUp) {
+    return <p className="muted" style={{ margin: 0 }}>A KA partner has already picked up this order; it cannot be handed to an external courier.</p>;
+  }
 
   return (
     <div>
       {err && <div className="card" style={{ background: '#fee2e2', marginBottom: 8 }}>{err}</div>}
+      {msg && <div className="card" style={{ background: '#dcfce7', marginBottom: 8 }}>{msg}</div>}
+      <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+        Booked a rider on Porter or another portal? Enter their details — the customer app shows them automatically.
+      </p>
       <div className="row">
-        <div className="field"><label>Platform</label>
-          <select value={provider} onChange={(e) => setProvider(e.target.value as ExternalProvider)}>
+        <div className="field"><label htmlFor="ext-provider">Platform</label>
+          <select id="ext-provider" value={provider} onChange={(e) => setProvider(e.target.value as ExternalProvider)}>
             {PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
         </div>
-        <div className="field" style={{ flex: 1 }}><label>Reference / tracking id</label>
-          <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. ZOM-12345" />
+        <div className="field" style={{ flex: 1 }}><label htmlFor="ext-ref">Booking / tracking id</label>
+          <input id="ext-ref" value={reference} maxLength={128} onChange={(e) => setReference(e.target.value)} placeholder="e.g. CRN12345678" />
         </div>
       </div>
-      <div className="field"><label>Note</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>
-      <button className="btn mint sm" disabled={busy} onClick={() => act(() => api.assignOrder(order.order_id, { mode: 'external', provider, reference: reference.trim() || undefined, note: note.trim() || undefined }))}>
-        {isExternal ? 'Update external delivery' : 'Mark as external delivery'}
+
+      <h5 style={{ margin: '8px 0 6px' }}>Rider details</h5>
+      <div className="row">
+        <div className="field" style={{ flex: 1 }}><label htmlFor="ext-rname">Rider name</label>
+          <input id="ext-rname" value={riderName} maxLength={128} onChange={(e) => setRiderName(e.target.value)} placeholder="e.g. Suresh Kumar" />
+        </div>
+        <div className="field" style={{ flex: 1 }}><label htmlFor="ext-rphone">Rider contact</label>
+          <input id="ext-rphone" type="tel" value={riderPhone} maxLength={20} onChange={(e) => setRiderPhone(e.target.value)} placeholder="+91 98765 43210" />
+          {!phoneOk && <span style={{ color: '#dc2626', fontSize: 12 }}>Enter a valid phone number</span>}
+        </div>
+      </div>
+      <div className="row">
+        <div className="field"><label htmlFor="ext-vtype">Vehicle</label>
+          <select id="ext-vtype" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
+            {VEHICLE_TYPES.map((v) => <option key={v} value={v}>{v.toUpperCase() === 'EV' ? 'EV' : v[0].toUpperCase() + v.slice(1)}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ flex: 1 }}><label htmlFor="ext-vnum">Vehicle number</label>
+          <input id="ext-vnum" value={vehicleNumber} maxLength={32} onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())} placeholder="MH12AB1234" />
+        </div>
+      </div>
+      <div className="field"><label htmlFor="ext-url">Live tracking link (optional)</label>
+        <input id="ext-url" type="url" value={trackingUrl} maxLength={512} onChange={(e) => setTrackingUrl(e.target.value)} placeholder="https://…" />
+        {!urlOk && <span style={{ color: '#dc2626', fontSize: 12 }}>Link must start with http:// or https://</span>}
+      </div>
+      <div className="field"><label htmlFor="ext-note">Internal note</label><input id="ext-note" value={note} maxLength={512} onChange={(e) => setNote(e.target.value)} /></div>
+      {missingRider && <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>Tip: add the rider name and contact so the customer knows who is coming.</p>}
+      <button className="btn mint sm" disabled={busy || !phoneOk || !urlOk} onClick={save}>
+        {isExternal ? 'Update rider details' : 'Assign external rider'}
       </button>
 
       {isExternal && (
@@ -365,7 +436,9 @@ function ExternalAssign({ order, onChanged }: { order: OrderDetail; onChanged: (
                 {s.replace('_', ' ')}
               </button>
             ))}
-            <button className="btn danger sm" disabled={busy} onClick={() => act(() => api.setOrderExternalStatus(order.order_id, 'cancelled'))}>cancelled</button>
+            <button className="btn danger sm" disabled={busy} onClick={() => {
+              if (window.confirm('Mark this order as cancelled? This cancels the order for the customer.')) void act(() => api.setOrderExternalStatus(order.order_id, 'cancelled'));
+            }}>cancelled</button>
           </div>
         </div>
       )}

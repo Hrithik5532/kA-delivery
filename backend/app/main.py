@@ -13,6 +13,7 @@ from app.services.ws_manager import manager
 from app.api.v1 import (
     admin,
     admin_api_keys,
+    admin_shifts,
     auth,
     deliveries,
     maps,
@@ -38,7 +39,14 @@ async def lifespan(_: FastAPI):
 
     init_database()
     manager.set_loop(asyncio.get_running_loop())
+    scheduler = None
+    if settings.environment.strip().lower() != "test":
+        from app.services.shift_service import run_scheduler
+
+        scheduler = asyncio.create_task(run_scheduler())
     yield
+    if scheduler is not None:
+        scheduler.cancel()
 
 
 app = FastAPI(
@@ -69,6 +77,7 @@ api.include_router(maps.router)
 api.include_router(deliveries.router)
 api.include_router(admin.router)
 api.include_router(admin_api_keys.router)
+api.include_router(admin_shifts.router)
 api.include_router(partner.router)
 api.include_router(tracking_ws.router)
 

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
-from app.services.otp_service import generate_otp, otp_matches
+from app.services.otp_service import generate_otp, otp_is_expired, otp_matches
 from app.models.auth_otp import LoginOtp
 from app.models.base import utcnow
 from app.models.enums import ApprovalStatus, UserRole
@@ -225,10 +225,7 @@ def verify_customer_otp(
         .order_by(LoginOtp.id.desc())
     ).scalars().first()
 
-    if not otp_matches(code, otp.code if otp else None):
-        raise AuthError("Incorrect verification code")
-    if otp is not None and otp.expires_at < utcnow() and code.strip() != settings.default_otp:
-        raise AuthError("Verification code has expired")
+    _check_login_otp(db, otp, code)
 
     if otp is not None:
         otp.consumed = True
@@ -254,6 +251,26 @@ def verify_customer_otp(
     db.refresh(user)
     return user, issue_token(user, UserRole.customer)
 
+
+
+def _check_login_otp(db: Session, otp: LoginOtp | None, code: str) -> None:
+    """Validate a login OTP with expiry and a wrong-guess limit.
+
+    Without the limit a 4-digit code can be brute-forced in at most 10k
+    requests; after ``login_otp_max_attempts`` misses the code is burned and a
+    new one must be requested.
+    """
+    if not otp_matches(code, otp.code if otp else None):
+        if otp is not None:
+            otp.attempts = (otp.attempts or 0) + 1
+            if otp.attempts >= settings.login_otp_max_attempts:
+                otp.consumed = True
+                db.commit()
+                raise AuthError("Too many incorrect attempts. Request a new code.")
+            db.commit()
+        raise AuthError("Incorrect verification code")
+    if otp is not None and otp_is_expired(code, otp.expires_at):
+        raise AuthError("Verification code has expired")
 
 
 def _get_by_phone(db: Session, phone: str) -> User | None:
@@ -292,10 +309,7 @@ def verify_rider_otp(db: Session, phone: str, code: str) -> tuple[User, Token]:
         .where(LoginOtp.phone == phone, LoginOtp.consumed.is_(False))
         .order_by(LoginOtp.id.desc())
     ).scalars().first()
-    if not otp_matches(code, otp.code if otp else None):
-        raise AuthError("Incorrect verification code")
-    if otp is not None and otp.expires_at < utcnow() and code.strip() != settings.default_otp:
-        raise AuthError("Verification code has expired")
+    _check_login_otp(db, otp, code)
     if otp is not None:
         otp.consumed = True
     user = _get_by_phone(db, phone)

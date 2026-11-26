@@ -135,6 +135,7 @@ def build_order_detail(db: Session, order: Order) -> dict:
         "external_reference": order.external_reference,
         "external_note": order.external_note,
         "external_status": order.external_status,
+        "external_rider": _external_rider_payload(order),
         "source": order.source,
         "mess": (
             {
@@ -186,6 +187,18 @@ def build_order_detail(db: Session, order: Order) -> dict:
             if mess is not None:
                 payload["mess"]["mess_id"] = mess.id
     return payload
+
+
+def _external_rider_payload(order: Order) -> dict | None:
+    if order.fulfillment_type != "external":
+        return None
+    return {
+        "name": order.external_rider_name,
+        "phone": order.external_rider_phone,
+        "vehicle_type": order.external_vehicle_type,
+        "vehicle_number": order.external_vehicle_number,
+        "tracking_url": order.external_tracking_url,
+    }
 
 
 def _remember_external_status(db: Session, order: Order, ext: ExternalOrder) -> None:
@@ -434,6 +447,21 @@ def assign_internal(db: Session, order: Order, admin: User, rider_id: int) -> Or
             ),
         )
 
+    if order.fulfillment_type == "external":
+        if order.external_status in ("picked_up", "delivered"):
+            raise HTTPException(
+                status_code=409,
+                detail="The external courier has already picked up this order; it cannot be re-routed.",
+            )
+        # void_internal_dispatch() cancelled the earlier delivery row; revive it
+        # into a fresh open batch so the offer is not made on a dead batch.
+        previous = _delivery_for(db, order.id)
+        if previous is not None and previous.status == DeliveryStatus.cancelled:
+            previous.status = DeliveryStatus.pending
+            dispatch_service.release_delivery_to_dispatch(db, previous)
+        if order.status in (OrderStatus.assigned, OrderStatus.out_for_delivery, OrderStatus.picked_up):
+            _force_order_status(db, order, OrderStatus.ready, admin.id, "rerouted-to-ka")
+
     order.fulfillment_type = "internal"
     # Clear any prior external handoff if the order is being re-routed to KA.
     order.external_provider = None
@@ -441,6 +469,7 @@ def assign_internal(db: Session, order: Order, admin: User, rider_id: int) -> Or
     order.external_reference = None
     order.external_note = None
     order.external_assigned_at = None
+    _clear_external_rider(order)
 
     offer_order_to_rider(
         db, order, rider, actor_user_id=admin.id, audit_action="order_assigned"
@@ -526,6 +555,49 @@ def void_internal_dispatch(db: Session, order: Order) -> None:
                 off.responded_at = utcnow()
 
 
+EXTERNAL_RIDER_FIELDS = (
+    "rider_name",
+    "rider_phone",
+    "vehicle_type",
+    "vehicle_number",
+    "tracking_url",
+)
+
+
+def _clear_external_rider(order: Order) -> None:
+    order.external_rider_name = None
+    order.external_rider_phone = None
+    order.external_vehicle_type = None
+    order.external_vehicle_number = None
+    order.external_tracking_url = None
+
+
+def _force_order_status(
+    db: Session, order: Order, to: OrderStatus, actor_user_id: int | None, detail: str
+) -> None:
+    """Set an order status outside the KA state machine (external couriers), audited."""
+    if order.status == to:
+        return
+    db.add(
+        AuditEvent(
+            order_id=order.id,
+            actor_user_id=actor_user_id,
+            event_type="order_status",
+            from_state=order.status.value,
+            to_state=to.value,
+            detail=detail,
+        )
+    )
+    order.status = to
+
+
+# Order status the consumer sees for each manually-tracked external status.
+_EXTERNAL_TO_ORDER_STATUS = {
+    "assigned": OrderStatus.assigned,
+    "picked_up": OrderStatus.out_for_delivery,
+}
+
+
 def assign_external(
     db: Session,
     order: Order,
@@ -533,30 +605,79 @@ def assign_external(
     provider: str,
     reference: str | None,
     note: str | None,
+    rider: dict | None = None,
 ) -> Order:
-    """Record that the order is fulfilled by an external platform and close KA dispatch."""
+    """Record that the order is fulfilled by an external platform and close KA dispatch.
+
+    ``rider`` carries the courier's details as entered by ops (name, phone,
+    vehicle type/number, tracking link). They are what the ordering platform's
+    consumer app shows via ``/partner/tracking``. Calling again updates the
+    details without resetting the courier's progress.
+    """
     if order.status in (OrderStatus.delivered, OrderStatus.cancelled):
         raise HTTPException(status_code=409, detail=f"Order already {order.status.value}")
 
+    delivery = _delivery_for(db, order.id)
+    if delivery is not None and delivery.status in (
+        DeliveryStatus.picked_up,
+        DeliveryStatus.delivering,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="A KA partner has already picked up this order; it cannot be handed to an external courier.",
+        )
+
+    already_external = order.fulfillment_type == "external" and order.external_status not in (
+        None,
+        "cancelled",
+    )
+    ka_rider_id = delivery.rider_id if delivery is not None else None
     void_internal_dispatch(db, order)
+    if ka_rider_id is not None and not order.is_test:
+        notification_service.notify(
+            ka_rider_id,
+            "Delivery reassigned",
+            f"Order #{order.id} has been reassigned and is no longer yours.",
+            {"order_id": order.id, "type": "order_unassigned"},
+        )
 
     order.fulfillment_type = "external"
     order.external_provider = provider
     order.external_reference = (reference or "").strip() or None
     order.external_note = (note or "").strip() or None
-    order.external_status = "assigned"
-    order.external_assigned_at = utcnow()
+
+    def clean(key: str) -> str | None:
+        value = (rider or {}).get(key)
+        return (str(value).strip() or None) if value is not None else None
+
+    order.external_rider_name = clean("rider_name")
+    order.external_rider_phone = clean("rider_phone")
+    order.external_vehicle_type = clean("vehicle_type")
+    order.external_vehicle_number = (
+        clean("vehicle_number").upper() if clean("vehicle_number") else None
+    )
+    order.external_tracking_url = clean("tracking_url")
+
+    if not already_external:
+        order.external_status = "assigned"
+        order.external_assigned_at = utcnow()
+        _force_order_status(
+            db, order, OrderStatus.assigned, admin.id, f"external:{provider}"
+        )
 
     audit_service.record(
         db,
         actor_user_id=admin.id,
-        action="order_external_assigned",
+        action="order_external_updated" if already_external else "order_external_assigned",
         target_type="order",
         target_id=order.id,
         order_id=order.id,
-        detail=f"provider={provider} ref={order.external_reference or '-'}",
+        detail=(
+            f"provider={provider} ref={order.external_reference or '-'} "
+            f"rider={order.external_rider_name or '-'} vehicle={order.external_vehicle_number or '-'}"
+        ),
     )
-    if not order.is_test and order.customer_id is not None:
+    if not already_external and not order.is_test and order.customer_id is not None:
         notification_service.notify(
             order.customer_id,
             "Delivery arranged",
@@ -574,30 +695,21 @@ def update_external_status(db: Session, order: Order, admin: User, status: str) 
     if order.fulfillment_type != "external":
         raise HTTPException(status_code=409, detail="Order is not externally fulfilled")
 
+    if order.status in (OrderStatus.delivered, OrderStatus.cancelled):
+        raise HTTPException(status_code=409, detail=f"Order already {order.status.value}")
+
     order.external_status = status
-    if status == "delivered" and order.status not in (
-        OrderStatus.delivered,
-        OrderStatus.cancelled,
-    ):
-        # External couriers bypass the internal state machine; record delivery directly.
-        order.status = OrderStatus.delivered
+    detail = f"external:{order.external_provider}"
+    # External couriers bypass the internal state machine; mirror their
+    # progress onto the order so the ordering platform sees the right status.
+    if status == "delivered":
+        _force_order_status(db, order, OrderStatus.delivered, admin.id, detail)
         order.delivered_at = utcnow()
-        db.add(
-            AuditEvent(
-                order_id=order.id,
-                actor_user_id=admin.id,
-                event_type="order_status",
-                from_state=None,
-                to_state=OrderStatus.delivered.value,
-                detail=f"external:{order.external_provider}",
-            )
-        )
-    elif status == "cancelled" and order.status not in (
-        OrderStatus.delivered,
-        OrderStatus.cancelled,
-    ):
-        order.status = OrderStatus.cancelled
+    elif status == "cancelled":
+        _force_order_status(db, order, OrderStatus.cancelled, admin.id, f"{detail} cancelled")
         order.cancelled_reason = f"external:{order.external_provider} cancelled"
+    else:
+        _force_order_status(db, order, _EXTERNAL_TO_ORDER_STATUS[status], admin.id, detail)
 
     audit_service.record(
         db,

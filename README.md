@@ -30,6 +30,14 @@ ops assign a delivery partner, and the platform polls
   go online/offline, receive & accept/reject batched delivery offers, navigate,
   confirm pickup, **complete each stop with the customer's OTP**, and view
   earnings/payouts.
+- **Shift slots**: ops define daily working slots (default Lunch 11 AM–2 PM,
+  Dinner 7 PM–10 PM) under **Shift Slots**; partners pick theirs in the app
+  (Profile → Working Slots). Partners are switched online when a selected slot
+  starts and offline when it ends (after any delivery in progress), and cannot
+  go online outside their slots. Deactivate all slots to disable.
+- **External couriers**: when a rider is booked on Porter/Rapido/etc., ops enter
+  the rider's name, contact and vehicle on the order page; the partner tracking
+  API returns them so the consumer app shows them automatically.
 - **Live tracking**: rider location ingestion with validation (ownership,
   freshness, implausible-jump/speed rejection), order-scoped WebSocket push,
   REST snapshot fallback, reconnect with backoff, stale-location indicators, and

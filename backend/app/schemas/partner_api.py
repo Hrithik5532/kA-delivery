@@ -55,11 +55,24 @@ class PartnerApiKeySecretOut(PartnerApiKeyOut):
 
 
 class PartnerDeliveryPartner(BaseModel):
-    name: str
+    name: str | None = None
     phone: str | None = None
     vehicle_type: str | None = None
     vehicle_number: str | None = None
     rating: float | None = None
+    # "ka" = in-platform partner (live location available); "external" = courier
+    # booked on another portal (Porter, Rapido, ...) with details entered by ops.
+    source: str = "ka"
+    provider: str | None = None
+    tracking_url: str | None = None
+
+
+class PartnerFulfillment(BaseModel):
+    type: str  # "internal" | "external"
+    provider: str | None = None
+    reference: str | None = None
+    external_status: str | None = None
+    tracking_url: str | None = None
 
 
 class PartnerLocation(BaseModel):
@@ -81,6 +94,7 @@ class PartnerTrackingOut(BaseModel):
     location: PartnerLocation | None = None
     eta_minutes: float | None = None
     distance_km: float | None = None
+    fulfillment: PartnerFulfillment | None = None
 
 
 class PartnerTimelineStep(BaseModel):
@@ -95,6 +109,7 @@ class PartnerStatusOut(BaseModel):
     delivery_status: str | None = None
     updated_at: datetime
     timeline: list[PartnerTimelineStep]
+    fulfillment: PartnerFulfillment | None = None
 
 
 class PartnerOrderCancel(PartnerOrderRef):

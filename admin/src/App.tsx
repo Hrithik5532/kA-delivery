@@ -12,6 +12,7 @@ import { Operations } from '@/pages/Operations';
 import { Orders } from '@/pages/Orders';
 import { OrderDetailPage } from '@/pages/OrderDetail';
 import { Settings } from '@/pages/Settings';
+import { ShiftSlots } from '@/pages/ShiftSlots';
 import { Withdrawals } from '@/pages/Withdrawals';
 import { WithdrawalDetail } from '@/pages/WithdrawalDetail';
 import type { ReactNode } from 'react';
@@ -44,6 +45,7 @@ export function App() {
         <Route path="/verification" element={<Verification />} />
         <Route path="/withdrawals" element={<Withdrawals />} />
         <Route path="/withdrawals/:id" element={<WithdrawalDetail />} />
+        <Route path="/shift-slots" element={<ShiftSlots />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

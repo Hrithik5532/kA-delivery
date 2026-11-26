@@ -254,6 +254,12 @@ export default function RiderProfile() {
             onPress={() => router.push('/(rider)/wallet' as never)}
           />
           <ProfileMenuItem
+            icon="time"
+            label="Working Slots"
+            subtitle="Choose the shifts you work (e.g. lunch, dinner)"
+            onPress={() => router.push('/(rider)/slots' as never)}
+          />
+          <ProfileMenuItem
             icon="document-text"
             label="Documents & Licenses"
             subtitle={profile.documents_summary}

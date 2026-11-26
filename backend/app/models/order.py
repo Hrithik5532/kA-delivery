@@ -77,6 +77,14 @@ class Order(Base, TimestampMixin):
     external_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
     external_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
     external_assigned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Courier details entered manually by ops when a rider is booked on an
+    # external portal (Porter, Rapido, ...). Surfaced to the ordering platform
+    # through ``/partner/tracking`` so the consumer app shows who is delivering.
+    external_rider_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    external_rider_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_vehicle_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_vehicle_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_tracking_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Contact captured at order time (booking-app customers are placeholder users).
     customer_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)

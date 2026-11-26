@@ -1,3 +1,4 @@
+import { parseApiDate } from '@/lib/time';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -13,7 +14,7 @@ function initials(name: string) {
 }
 
 function formatTime(iso: string) {
-  const d = new Date(iso);
+  const d = parseApiDate(iso);
   return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 

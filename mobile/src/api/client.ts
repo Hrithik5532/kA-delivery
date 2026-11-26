@@ -20,6 +20,7 @@ import type { DeliveryHistoryResponse, HistoryPeriod, HistoryStatus,
   EarningsResponse,
   OtpRequestResponse,
   Offer,
+  RiderSlots,
   OfferDetail,
   RiderDashboard,
   SupportHelp,
@@ -261,6 +262,9 @@ export const api = {
 
   riderOnline: () => request<void>('/rider/online', { method: 'POST' }),
   riderOffline: () => request<void>('/rider/offline', { method: 'POST' }),
+  riderSlots: () => request<RiderSlots>('/rider/slots'),
+  setRiderSlots: (slotIds: number[]) =>
+    request<RiderSlots>('/rider/slots', { method: 'PUT', body: { slot_ids: slotIds } }),
   riderOffers: () => request<Offer[]>('/rider/offers'),
   offerDetail: (offerId: number) => request<OfferDetail>(`/rider/offers/${offerId}`),
   riderActive: () => request<Batch | null>('/rider/active'),

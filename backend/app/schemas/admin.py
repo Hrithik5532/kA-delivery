@@ -274,6 +274,16 @@ class OrderItemLine(BaseModel):
     food_type: str | None = None
 
 
+class ExternalRiderInfo(BaseModel):
+    """Courier booked on an external portal, as entered by ops."""
+
+    name: str | None = None
+    phone: str | None = None
+    vehicle_type: str | None = None
+    vehicle_number: str | None = None
+    tracking_url: str | None = None
+
+
 class OrderAssignment(BaseModel):
     """Current delivery assignment state for an order."""
 
@@ -304,6 +314,7 @@ class OrderDetailOut(OrderSummaryOut):
     external_reference: str | None = None
     external_note: str | None = None
     external_status: str | None = None
+    external_rider: "ExternalRiderInfo | None" = None
     source: str = "customer"
     # Nested detail.
     mess: OrderMessInfo | None = None
@@ -335,9 +346,18 @@ class AssignOrderRequest(BaseModel):
     # internal
     rider_id: int | None = None
     # external
-    provider: str | None = Field(default=None, pattern="^(zomato|swiggy|other)$")
+    provider: str | None = Field(
+        default=None, pattern="^(zomato|swiggy|porter|rapido|uber|other)$"
+    )
     reference: str | None = Field(default=None, max_length=128)
     note: str | None = Field(default=None, max_length=512)
+    # Courier details entered manually when booking on an external portal
+    # (shown to the consumer via the partner tracking API).
+    rider_name: str | None = Field(default=None, max_length=128)
+    rider_phone: str | None = Field(default=None, max_length=32, pattern=r"^[0-9+\-\s()]*$")
+    vehicle_type: str | None = Field(default=None, max_length=32)
+    vehicle_number: str | None = Field(default=None, max_length=32)
+    tracking_url: str | None = Field(default=None, max_length=512, pattern=r"^(https?://\S+)?$")
 
 
 class ExternalStatusRequest(BaseModel):

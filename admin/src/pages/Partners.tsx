@@ -1,3 +1,4 @@
+import { parseApiDate } from '@/lib/time';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -28,7 +29,7 @@ function verificationMeta(status: string) {
 }
 function lastSeenLabel(iso: string | null): string | null {
   if (!iso) return null;
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  const mins = Math.floor((Date.now() - parseApiDate(iso).getTime()) / 60000);
   if (mins < 1) return 'seen just now';
   if (mins < 60) return `seen ${mins}m ago`;
   const hrs = Math.floor(mins / 60);

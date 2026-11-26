@@ -655,3 +655,29 @@ export interface RiderProfileDetail {
   documents_total_count: number;
   documents_valid_until: string;
 }
+
+/** A daily working slot the partner can pick (times are business-local). */
+export interface RiderSlot {
+  id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  selected: boolean;
+  is_running: boolean;
+  next_start_at: string;
+  next_end_at: string;
+  is_full: boolean;
+}
+
+export interface RiderSlots {
+  /** False when ops have no active slots: partners can go online any time. */
+  enforced: boolean;
+  timezone: string;
+  slots: RiderSlot[];
+  current_slot_id: number | null;
+  current_slot_ends_at: string | null;
+  next_slot_id: number | null;
+  next_slot_starts_at: string | null;
+  can_go_online_now: boolean;
+}

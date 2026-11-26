@@ -1,3 +1,4 @@
+import { parseApiDate } from '@/lib/time';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -48,7 +49,7 @@ export function Orders() {
                         ? <span className="badge" style={{ background: '#fef3c7', color: '#d97706' }}>{(o.external_provider ?? 'external').toUpperCase()}</span>
                         : (o.rider_name ?? <span className="muted">unassigned</span>)}
                     </td>
-                    <td className="muted">{new Date(o.created_at).toLocaleString()}</td>
+                    <td className="muted">{parseApiDate(o.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

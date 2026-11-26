@@ -658,7 +658,13 @@ def assign_order(
         if not data.provider:
             raise HTTPException(status_code=400, detail="provider is required")
         order = order_admin_service.assign_external(
-            db, order, admin, data.provider, data.reference, data.note
+            db,
+            order,
+            admin,
+            data.provider,
+            data.reference,
+            data.note,
+            rider=data.model_dump(include=set(order_admin_service.EXTERNAL_RIDER_FIELDS)),
         )
     return _order_detail_out(db, order)
 

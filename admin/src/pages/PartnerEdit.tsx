@@ -1,3 +1,4 @@
+import { parseApiDate } from '@/lib/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -51,11 +52,11 @@ function partnerId(p: PartnerDetail) {
 
 function fmt(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return parseApiDate(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function joinDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  return parseApiDate(iso).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
 function buildForm(p: PartnerDetail): PartnerUpdatePayload {

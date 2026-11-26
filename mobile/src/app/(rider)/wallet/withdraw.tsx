@@ -50,7 +50,7 @@ function AccountCard({
     <Pressable onPress={onSelect}>
       <PartnerCard
         variant="container"
-        style={[styles.accountCard, selected && styles.accountCardSelected]}
+        style={StyleSheet.flatten([styles.accountCard, selected && styles.accountCardSelected])}
       >
         <View style={styles.accountRow}>
           <View style={[styles.accountIcon, selected && styles.accountIconSelected]}>

@@ -169,6 +169,38 @@ X-API-Key: <key>
 - `eta_minutes` / `distance_km` are `null` when your API has no customer
   coordinates for the order.
 - Poll every 5–10 seconds while the order is active.
+- All timestamps are **UTC**. Some are sent without a trailing `Z`
+  (e.g. `"2026-10-11T12:30:00"`); always parse offset-less values as UTC.
+- `fulfillment` (also on `/partner/status`) says who is delivering:
+  `{"type": "internal"}` for a KA partner, or for an external courier
+  `{"type": "external", "provider": "porter", "reference": "CRN123",
+  "external_status": "assigned", "tracking_url": "https://…"}`.
+
+### Externally booked riders (Porter, Rapido, …)
+
+When ops book a rider on another portal they enter the courier's details in the
+admin console, and tracking returns them in the same `delivery_partner` shape —
+so the consumer app can show who is coming with no extra work:
+
+```json
+"delivery_partner": {
+  "name": "Suresh Kumar",
+  "phone": "+91 98765 43210",
+  "vehicle_type": "bike",
+  "vehicle_number": "MH12AB1234",
+  "rating": null,
+  "source": "external",
+  "provider": "porter",
+  "tracking_url": "https://porter.in/track/CRN123"
+}
+```
+
+- `source` is `"ka"` for our own partners and `"external"` for booked couriers.
+- External couriers have no live `location` (it is `null`); show
+  `tracking_url` instead when present.
+- `status` follows the courier's progress: `assigned` → `out_for_delivery`
+  (picked up) → `delivered`; `delivery_status` carries the courier status
+  (`assigned`, `picked_up`, `delivered`, `cancelled`).
 
 ### Status values
 

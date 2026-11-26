@@ -99,6 +99,9 @@ class ExternalProvider(str, enum.Enum):
 
     zomato = "zomato"
     swiggy = "swiggy"
+    porter = "porter"
+    rapido = "rapido"
+    uber = "uber"
     other = "other"
 
 

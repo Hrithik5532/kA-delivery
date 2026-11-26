@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     location_max_jump_meters: float = 2000.0
     location_max_speed_mps: float = 55.0
 
+    # --- Shift slots ---
+    # Riders pick working slots (e.g. Lunch 11:00-14:00, Dinner 19:00-22:00).
+    # Slot times are wall-clock times in this timezone.
+    business_timezone: str = "Asia/Kolkata"
+    # When true (and at least one active slot exists) a rider may only be
+    # online during a slot they selected. They are switched online when the slot
+    # starts and offline when it ends (unless mid-delivery).
+    shift_slots_enforced: bool = True
+    shift_scheduler_interval_seconds: int = 60
+
     # --- Tracking retention ---
     tracking_retention_hours: int = 24
     max_location_history: int = 500
@@ -87,6 +97,12 @@ class Settings(BaseSettings):
     # --- Login OTP (customer phone sign-in) ---
     login_otp_length: int = 4
     login_otp_expiry_minutes: int = 5
+    # Wrong guesses allowed per issued login OTP before it is invalidated.
+    login_otp_max_attempts: int = 5
+    # Return the login OTP in the API response (``dev_code``). There is no SMS
+    # gateway yet, so this is how dev/test logins work — but in production it
+    # lets anyone log in as any phone. Unset = on outside production, off in it.
+    otp_return_code_in_response: bool | None = None
 
     # --- Dispatch / batching ---
     dispatch_offer_timeout_seconds: int = 86400  # 24h; offers end only on accept/reject
@@ -137,6 +153,12 @@ class Settings(BaseSettings):
         if raw == "*" or not raw:
             return ["*"]
         return [o.strip() for o in raw.split(",") if o.strip()]
+
+    @property
+    def expose_login_otp(self) -> bool:
+        if self.otp_return_code_in_response is not None:
+            return self.otp_return_code_in_response
+        return not self.is_production
 
     @property
     def is_production(self) -> bool:

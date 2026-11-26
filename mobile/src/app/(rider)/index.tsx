@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { api, ApiError } from '@/api/client';
-import type { Batch, Offer, RiderDashboard, UserOut } from '@/api/types';
+import type { Batch, Offer, RiderDashboard, RiderSlots, UserOut } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
 import { FeedbackBanner } from '@/components/FeedbackBanner';
@@ -18,6 +18,7 @@ import { Text } from '@/components/ui/Text';
 import { config } from '@/config';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { formatRelativeAgo } from '@/lib/format-time';
+import { slotSummary } from '@/lib/slots';
 import { colors, formatStatus, money, spacing, statusColor } from '@/theme';
 
 function hasPendingStops(batch: Batch | null) {
@@ -51,6 +52,7 @@ export default function RiderDashboard() {
   const [earningsToday, setEarningsToday] = useState(0);
   const [deliveriesToday, setDeliveriesToday] = useState(0);
   const [dashboard, setDashboard] = useState<RiderDashboard | null>(null);
+  const [slots, setSlots] = useState<RiderSlots | null>(null);
   const [recentLines, setRecentLines] = useState<{ order_id: number; amount_cents: number; delivered_at: string | null }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -79,9 +81,14 @@ export default function RiderDashboard() {
       const u = await api.me();
       setMe(u);
       if (u.rider_profile?.approval_status === 'approved') {
-        const [o, b] = await Promise.all([api.riderOffers(), api.riderActive()]);
+        const [o, b, sl] = await Promise.all([
+          api.riderOffers(),
+          api.riderActive(),
+          api.riderSlots().catch(() => null),
+        ]);
         setOffers(o);
         setBatch(b);
+        if (sl) setSlots(sl);
         if (o.length > 0 && !hasPendingStops(b) && seenOfferId.current !== o[0].id) {
           seenOfferId.current = o[0].id;
           feedback.info(`New delivery offer from ${o[0].mess_name ?? 'kitchen'}`, 'New dispatch');
@@ -189,7 +196,26 @@ export default function RiderDashboard() {
               ) : null}
             </View>
 
-            <OnlineStatusBanner online={online} onToggle={toggleOnline} disabled={busy} />
+            <OnlineStatusBanner
+              online={online}
+              onToggle={toggleOnline}
+              disabled={busy || (!online && slots?.enforced === true && !slots.can_go_online_now)}
+            />
+
+            {slots?.enforced ? (
+              <Pressable onPress={() => router.push('/(rider)/slots' as never)} accessibilityRole="button">
+                <PartnerCard variant="lowest" style={styles.slotCard}>
+                  <Ionicons name="time" size={20} color={slots.current_slot_id ? colors.secondary : colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text variant="label" style={{ fontWeight: '700' }}>{slotSummary(slots).title}</Text>
+                    <Text variant="caption" style={{ color: colors.textMuted, marginTop: 2 }}>{slotSummary(slots).subtitle}</Text>
+                  </View>
+                  <Text variant="caption" style={{ color: colors.primary, fontWeight: '700' }}>
+                    {slots.slots.some((s) => s.selected) ? 'Change' : 'Choose'}
+                  </Text>
+                </PartnerCard>
+              </Pressable>
+            ) : null}
 
             {locStatus === 'denied' ? (
               <FeedbackBanner severity="warning" title="Location access needed" message="Enable location so customers can track your delivery." />
@@ -447,6 +473,12 @@ export default function RiderDashboard() {
 }
 
 const styles = StyleSheet.create({
+  slotCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, gap: spacing.lg },
 

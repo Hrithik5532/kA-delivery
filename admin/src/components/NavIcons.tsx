@@ -95,6 +95,15 @@ export function IconReports(props: IconProps) {
   );
 }
 
+export function IconShifts(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </Base>
+  );
+}
+
 export function IconSettings(props: IconProps) {
   return (
     <Base {...props}>

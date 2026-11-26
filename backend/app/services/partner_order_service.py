@@ -19,6 +19,7 @@ from app.models.user import User
 from app.schemas.partner_api import (
     PartnerCancelOut,
     PartnerDeliveryPartner,
+    PartnerFulfillment,
     PartnerLocation,
     PartnerOrderOut,
     PartnerStatusOut,
@@ -73,6 +74,52 @@ def register_order(db: Session, raw: str | int) -> PartnerOrderOut:
     )
 
 
+def _fulfillment(order: Order) -> PartnerFulfillment:
+    if order.fulfillment_type == "external":
+        return PartnerFulfillment(
+            type="external",
+            provider=order.external_provider,
+            reference=order.external_reference,
+            external_status=order.external_status,
+            tracking_url=order.external_tracking_url,
+        )
+    return PartnerFulfillment(type="internal")
+
+
+def _external_partner(order: Order) -> PartnerDeliveryPartner | None:
+    """Courier details ops entered for an externally-booked delivery."""
+    if order.fulfillment_type != "external" or order.external_status in (None, "cancelled"):
+        return None
+    if order.status == OrderStatus.cancelled:
+        return None
+    if not any(
+        (
+            order.external_rider_name,
+            order.external_rider_phone,
+            order.external_vehicle_number,
+            order.external_tracking_url,
+        )
+    ):
+        return None
+    return PartnerDeliveryPartner(
+        name=order.external_rider_name,
+        phone=order.external_rider_phone,
+        vehicle_type=order.external_vehicle_type,
+        vehicle_number=order.external_vehicle_number,
+        source="external",
+        provider=order.external_provider,
+        tracking_url=order.external_tracking_url,
+    )
+
+
+def _delivery_status(order: Order, delivery: Delivery | None) -> str | None:
+    # An external handoff voids the KA delivery row; report the courier's
+    # progress instead of that internal "cancelled".
+    if order.fulfillment_type == "external":
+        return order.external_status
+    return delivery.status.value if delivery else None
+
+
 def tracking(db: Session, raw: str | int) -> PartnerTrackingOut:
     ref = normalize_ref(raw)
     order = find_by_ref(db, ref)
@@ -84,8 +131,8 @@ def tracking(db: Session, raw: str | int) -> PartnerTrackingOut:
         select(Delivery).where(Delivery.order_id == order.id)
     ).scalar_one_or_none()
 
-    partner: PartnerDeliveryPartner | None = None
-    if delivery is not None and delivery.rider_id is not None:
+    partner: PartnerDeliveryPartner | None = _external_partner(order)
+    if partner is None and delivery is not None and delivery.rider_id is not None:
         rider = db.get(User, delivery.rider_id)
         if rider is not None:
             profile = rider.rider_profile
@@ -115,12 +162,13 @@ def tracking(db: Session, raw: str | int) -> PartnerTrackingOut:
     return PartnerTrackingOut(
         order_id=ref,
         status=order.status.value,
-        delivery_status=delivery.status.value if delivery else None,
+        delivery_status=_delivery_status(order, delivery),
         updated_at=snap.updated_at,
         delivery_partner=partner,
         location=location,
         eta_minutes=snap.eta_minutes,
         distance_km=snap.distance_km,
+        fulfillment=_fulfillment(order),
     )
 
 
@@ -141,9 +189,10 @@ def order_status(db: Session, raw: str | int) -> PartnerStatusOut:
     return PartnerStatusOut(
         order_id=ref,
         status=order.status.value,
-        delivery_status=delivery.status.value if delivery else None,
+        delivery_status=_delivery_status(order, delivery),
         updated_at=snap.updated_at,
         timeline=timeline,
+        fulfillment=_fulfillment(order),
     )
 
 

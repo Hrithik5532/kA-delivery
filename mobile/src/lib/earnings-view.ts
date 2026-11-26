@@ -1,3 +1,4 @@
+import { parseServerDate } from '@/lib/format-time';
 import type { EarningsResponse } from '@/api/types';
 
 export type DayBucket = {
@@ -40,7 +41,7 @@ function addDays(d: Date, n: number) {
 
 function inRange(iso: string | null, start: Date, end: Date) {
   if (!iso) return false;
-  const t = new Date(iso).getTime();
+  const t = parseServerDate(iso).getTime();
   return t >= start.getTime() && t < end.getTime();
 }
 
@@ -115,7 +116,7 @@ export function buildDailyRows(data: EarningsResponse): DailyEarningRow[] {
 
   for (const line of data.lines) {
     if (!line.delivered_at) continue;
-    const day = startOfDay(new Date(line.delivered_at));
+    const day = startOfDay(parseServerDate(line.delivered_at));
     const key = day.toISOString();
     if (!map.has(key)) {
       const isToday = day.getTime() === today.getTime();
@@ -137,7 +138,7 @@ export function buildDailyRows(data: EarningsResponse): DailyEarningRow[] {
   return [...map.values()]
     .map((row) => {
       const lines = data.lines.filter(
-        (l) => l.delivered_at && startOfDay(new Date(l.delivered_at)).toISOString() === row.key,
+        (l) => l.delivered_at && startOfDay(parseServerDate(l.delivered_at)).toISOString() === row.key,
       );
       const amountCents = lines.reduce((s, l) => s + l.amount_cents, 0);
       const trips = lines.length;

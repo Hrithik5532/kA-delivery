@@ -46,6 +46,7 @@ from app.schemas.partner import (
     WalletWithdrawOut,
     WalletWithdrawRequest,
 )
+from app.schemas.shift import RiderSlotsOut, RiderSlotsUpdate
 from app.schemas.tracking import LocationAccepted, LocationIn
 from app.services import (
     active_delivery_service,
@@ -59,6 +60,7 @@ from app.services import (
     location_service,
     offer_detail_service,
     pricing_service,
+    shift_service,
     verification_service,
     wallet_service,
     support_service,
@@ -193,6 +195,11 @@ def _active_batch(db: Session, rider_id: int) -> DeliveryBatch | None:
 
 @router.post("/online", status_code=204)
 def go_online(user: User = Depends(require_approved_rider), db: Session = Depends(get_db)):
+    # Shift slots: a rider can only be online inside a selected slot.
+    shift_service.ensure_can_go_online(db, user.id)
+    window = shift_service.rider_current_window(db, user.id)
+    if window is not None and user.rider_profile is not None:
+        user.rider_profile.shift_auto_online_key = window.key
     auth_service.set_rider_online(db, user, True)
     dispatch_service.repair_assigned_batches(db)
     dispatch_service.retry_pending_dispatches(db)
@@ -206,6 +213,26 @@ def go_offline(user: User = Depends(require_rider), db: Session = Depends(get_db
             status_code=409, detail="Finish your active delivery before going offline"
         )
     auth_service.set_rider_online(db, user, False)
+
+
+@router.get("/slots", response_model=RiderSlotsOut)
+def my_slots(
+    user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
+) -> RiderSlotsOut:
+    """Working slots the rider can pick, with their selection and timing."""
+    return RiderSlotsOut(**shift_service.rider_slots_view(db, user.id))
+
+
+@router.put("/slots", response_model=RiderSlotsOut)
+def set_my_slots(
+    data: RiderSlotsUpdate,
+    user: User = Depends(require_approved_rider),
+    db: Session = Depends(get_db),
+) -> RiderSlotsOut:
+    """Replace the rider's (daily recurring) slot selection."""
+    shift_service.set_rider_slots(db, user.id, data.slot_ids)
+    db.commit()
+    return RiderSlotsOut(**shift_service.rider_slots_view(db, user.id))
 
 
 @router.get("/offers", response_model=list[OfferOut])

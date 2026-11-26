@@ -321,6 +321,7 @@ export interface OrderDetail extends OrderSummary {
   external_reference: string | null;
   external_note: string | null;
   external_status: string | null;
+  external_rider: ExternalRiderInfo | null;
   source: string;
   mess: OrderMessInfo | null;
   customer: OrderCustomerInfo | null;
@@ -345,7 +346,7 @@ export interface CandidateRider {
   unavailable_reason: string | null;
 }
 
-export type ExternalProvider = 'zomato' | 'swiggy' | 'other';
+export type ExternalProvider = 'porter' | 'rapido' | 'uber' | 'zomato' | 'swiggy' | 'other';
 export type ExternalDeliveryStatus = 'assigned' | 'picked_up' | 'delivered' | 'cancelled';
 
 export interface AssignOrderPayload {
@@ -354,6 +355,58 @@ export interface AssignOrderPayload {
   provider?: ExternalProvider;
   reference?: string;
   note?: string;
+  // Courier details when booked on an external portal (shown in the consumer app).
+  rider_name?: string;
+  rider_phone?: string;
+  vehicle_type?: string;
+  vehicle_number?: string;
+  tracking_url?: string;
+}
+
+export interface ExternalRiderInfo {
+  name: string | null;
+  phone: string | null;
+  vehicle_type: string | null;
+  vehicle_number: string | null;
+  tracking_url: string | null;
+}
+
+export interface ShiftSlot {
+  id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  is_active: boolean;
+  max_riders: number | null;
+  sort_order: number;
+  rider_count: number;
+}
+
+export type ShiftSlotPayload = Partial<Pick<ShiftSlot, 'name' | 'start_time' | 'end_time' | 'is_active' | 'max_riders' | 'sort_order'>>;
+
+export interface RiderSlot {
+  id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  selected: boolean;
+  is_running: boolean;
+  next_start_at: string;
+  next_end_at: string;
+  is_full: boolean;
+}
+
+export interface RiderSlots {
+  enforced: boolean;
+  timezone: string;
+  slots: RiderSlot[];
+  current_slot_id: number | null;
+  current_slot_ends_at: string | null;
+  next_slot_id: number | null;
+  next_slot_starts_at: string | null;
+  can_go_online_now: boolean;
 }
 
 export interface RiderMarker {
