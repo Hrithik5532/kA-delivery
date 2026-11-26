@@ -121,3 +121,22 @@ once the order is terminal.
 app uses the labeled dev fallback and runs in Expo Go. To use real maps, set the
 provider + key and create a development build (`npx expo run:ios` /
 `npx expo run:android` or EAS).
+
+## Mobile build secrets (EAS)
+
+Never put keys in `mobile/eas.json` — it is committed. Each build profile sets
+`"environment"` (`development` / `preview` / `production`), and EAS injects the
+variables stored for that environment at build time. `app.config.js` reads
+`EXPO_PUBLIC_MAP_API_KEY` from there.
+
+```bash
+cd mobile
+eas env:create --environment production  --name EXPO_PUBLIC_MAP_API_KEY --value <key> --visibility sensitive
+eas env:create --environment preview     --name EXPO_PUBLIC_MAP_API_KEY --value <key> --visibility sensitive
+eas env:create --environment development --name EXPO_PUBLIC_MAP_API_KEY --value <key> --visibility sensitive
+```
+
+`EXPO_PUBLIC_*` values are compiled into the app, so a Maps key is always
+readable from the installed APK/IPA. Protect it in Google Cloud Console by
+restricting it to the Android package + signing SHA-1 and the iOS bundle id, and
+to the Maps APIs only.
