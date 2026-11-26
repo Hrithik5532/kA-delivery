@@ -81,6 +81,8 @@ _ops = require_admin_permission(AdminRole.operations)
 _any_admin = require_admin_permission(
     AdminRole.partner_verification, AdminRole.operations, AdminRole.support
 )
+# Changing a partner's account (profile/bank, suspend) — not the support tier.
+_partner_write = require_admin_permission(AdminRole.partner_verification, AdminRole.operations)
 
 
 # --- Partner verification -------------------------------------------------
@@ -502,7 +504,7 @@ def partner_detail(
 
 @router.patch("/partners/{rider_id}", response_model=PartnerDetail)
 def update_partner_profile(
-    rider_id: int, data: PartnerUpdateRequest, admin: User = Depends(_any_admin), db: Session = Depends(get_db),
+    rider_id: int, data: PartnerUpdateRequest, admin: User = Depends(_partner_write), db: Session = Depends(get_db),
 ) -> PartnerDetail:
     partner_admin_service.update_partner(db, rider_id, admin.id, data.model_dump(exclude_unset=True))
     return partner_detail(rider_id, admin, db)
@@ -518,7 +520,7 @@ def add_partner_note(
 
 @router.post("/partners/{rider_id}/suspend", response_model=PartnerDetail)
 def suspend_partner(
-    rider_id: int, data: ReasonRequest, admin: User = Depends(_any_admin),
+    rider_id: int, data: ReasonRequest, admin: User = Depends(_partner_write),
     db: Session = Depends(get_db),
 ) -> PartnerDetail:
     user = db.get(User, rider_id)
@@ -528,9 +530,13 @@ def suspend_partner(
     user.suspended_reason = data.reason.strip()
     if user.rider_profile:
         user.rider_profile.is_online = False
+    # Hand back anything not yet picked up so customers are not left waiting
+    # on a partner who can no longer log in.
+    released = partner_admin_service.release_unpicked_work(db, rider_id)
     audit_service.record(
         db, actor_user_id=admin.id, action="partner_suspended",
         target_type="partner", target_id=rider_id, reason=data.reason.strip(),
+        detail=f"released_orders={released}" if released else None,
     )
     db.commit()
     return partner_detail(rider_id, admin, db)
@@ -538,7 +544,7 @@ def suspend_partner(
 
 @router.post("/partners/{rider_id}/reactivate", response_model=PartnerDetail)
 def reactivate_partner(
-    rider_id: int, data: ReasonRequest, admin: User = Depends(_any_admin),
+    rider_id: int, data: ReasonRequest, admin: User = Depends(_partner_write),
     db: Session = Depends(get_db),
 ) -> PartnerDetail:
     user = db.get(User, rider_id)
@@ -846,15 +852,15 @@ def withdrawal_detail(txn_id: int, _: User = Depends(_any_admin), db: Session = 
     return WithdrawalDetailOut.model_validate(withdrawal_admin_service.get_detail(db, txn_id))
 
 @router.post("/withdrawals/{txn_id}/approve", response_model=WithdrawalRequestOut)
-def approve_withdrawal(txn_id: int, admin: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
+def approve_withdrawal(txn_id: int, admin: User = Depends(_ops), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
     return WithdrawalRequestOut.model_validate(withdrawal_admin_service.approve(db, txn_id, admin.id))
 
 
 @router.post("/withdrawals/{txn_id}/reject", response_model=WithdrawalRequestOut)
-def reject_withdrawal(txn_id: int, data: ReasonRequest, admin: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
+def reject_withdrawal(txn_id: int, data: ReasonRequest, admin: User = Depends(_ops), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
     return WithdrawalRequestOut.model_validate(withdrawal_admin_service.reject(db, txn_id, admin.id, data.reason))
 
 
 @router.post("/withdrawals/bulk-approve")
-def bulk_approve_withdrawals(data: BulkWithdrawalApproveRequest, admin: User = Depends(_any_admin), db: Session = Depends(get_db)):
+def bulk_approve_withdrawals(data: BulkWithdrawalApproveRequest, admin: User = Depends(_ops), db: Session = Depends(get_db)):
     return withdrawal_admin_service.bulk_approve(db, data.ids, admin.id)

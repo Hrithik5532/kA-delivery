@@ -386,7 +386,9 @@ def get_detail(db: Session, txn_id: int) -> dict:
 
 
 def approve(db: Session, txn_id: int, admin_id: int) -> dict:
-    txn = db.get(WalletTransaction, txn_id)
+    # Row lock: approve and reject racing on the same request must not both
+    # pass the "processing" check (that would pay out AND refund).
+    txn = db.get(WalletTransaction, txn_id, with_for_update=True)
     if txn is None or txn.txn_type not in WITHDRAWAL_TYPES:
         raise HTTPException(status_code=404, detail="Withdrawal request not found")
     if txn.status != "processing":
@@ -408,15 +410,17 @@ def approve(db: Session, txn_id: int, admin_id: int) -> dict:
 
 
 def reject(db: Session, txn_id: int, admin_id: int, reason: str) -> dict:
-    txn = db.get(WalletTransaction, txn_id)
+    # Row lock: approve and reject racing on the same request must not both
+    # pass the "processing" check (that would pay out AND refund).
+    txn = db.get(WalletTransaction, txn_id, with_for_update=True)
     if txn is None or txn.txn_type not in WITHDRAWAL_TYPES:
         raise HTTPException(status_code=404, detail="Withdrawal request not found")
     if txn.status != "processing":
         raise HTTPException(status_code=400, detail="Request is not pending review")
     amount = abs(txn.amount_cents)
     wallet = db.execute(
-        select(RiderWallet).where(RiderWallet.rider_id == txn.rider_id)
-    ).scalar_one_or_none()
+        select(RiderWallet).where(RiderWallet.rider_id == txn.rider_id).with_for_update()
+    ).scalars().first()
     if wallet:
         wallet.total_balance_cents += amount
         wallet.available_balance_cents = max(

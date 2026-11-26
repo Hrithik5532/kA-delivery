@@ -327,3 +327,69 @@ def test_login_otp_locks_after_max_attempts(client, monkeypatch):
     # The code is burned — even the right one no longer works.
     r = client.post("/api/v1/auth/customer/otp/verify", json={"phone": phone, "code": "4321"})
     assert r.status_code in (400, 401)
+
+
+# --- Audit fixes ------------------------------------------------------------
+
+def test_support_tier_cannot_move_money_or_edit_partners(client):
+    from app.database import SessionLocal
+    from app.models.enums import AdminRole
+    from app.models.user import User
+    from app.services.auth_service import hash_password
+
+    with SessionLocal() as db:
+        db.add(User(email="support@x.app", full_name="Support", roles="admin",
+                    admin_role=AdminRole.support, hashed_password=hash_password("password123")))
+        rider = db.query(User).filter(User.email == "rider@digimess.app").one()
+        rid = rider.id
+        db.commit()
+    stok = login(client, "admin", "support@x.app")
+    h = _auth(stok)
+    assert client.get("/api/v1/admin/withdrawals", headers=h).status_code == 200  # can read
+    assert client.post("/api/v1/admin/withdrawals/1/approve", headers=h).status_code == 403
+    assert client.post("/api/v1/admin/withdrawals/bulk-approve", headers=h, json={"ids": [1]}).status_code == 403
+    assert client.patch(f"/api/v1/admin/partners/{rid}", headers=h, json={"bank_name": "X"}).status_code == 403
+    assert client.post(f"/api/v1/admin/partners/{rid}/suspend", headers=h, json={"reason": "x"}).status_code == 403
+
+
+def test_withdraw_without_bank_account_is_400_not_500(client, rider_token):
+    from app.database import SessionLocal
+    from app.models.user import RiderProfile, User
+    from app.services import wallet_service
+
+    with SessionLocal() as db:
+        rider = db.query(User).filter(User.email == "rider@digimess.app").one()
+        prof = db.query(RiderProfile).filter(RiderProfile.user_id == rider.id).one()
+        prof.bank_name = ""
+        prof.bank_account_masked = ""
+        wallet = wallet_service._get_or_create_wallet(db, rider.id)
+        wallet.total_balance_cents = 100000
+        wallet.available_balance_cents = 100000
+        db.commit()
+    resp = client.post("/api/v1/rider/wallet/withdraw", headers=_auth(rider_token),
+                       json={"amount_cents": 20000, "account_id": "bank_primary"})
+    assert resp.status_code == 400, resp.text
+    assert "bank" in resp.json()["detail"].lower()
+
+
+def test_suspending_partner_releases_accepted_order(client, partner_key):
+    ref = register_external_order()
+    out = client.post("/api/v1/partner/orders", json={"order_id": ref}, headers=H).json()
+    order_id = out["internal_id"]
+    atok = _admin(client)
+    rtok = login(client, "rider", "rider@digimess.app")
+    client.post("/api/v1/rider/online", headers=_auth(rtok))
+    client.post("/api/v1/rider/location", headers=_auth(rtok),
+                json={"lat": 18.5210, "lng": 73.8560, "client_timestamp": now_iso()})
+    cands = client.get(f"/api/v1/admin/orders/{order_id}/candidate-riders", headers=_auth(atok)).json()
+    rid = next(c["rider_id"] for c in cands if c["full_name"] == "Rahul Sharma")
+    client.post(f"/api/v1/admin/orders/{order_id}/assign", headers=_auth(atok),
+                json={"mode": "internal", "rider_id": rid})
+    offer = client.get("/api/v1/rider/offers", headers=_auth(rtok)).json()[0]
+    assert client.post(f"/api/v1/deliveries/offers/{offer['id']}/accept", headers=_auth(rtok)).status_code == 200
+
+    resp = client.post(f"/api/v1/admin/partners/{rid}/suspend", headers=_auth(atok), json={"reason": "fraud"})
+    assert resp.status_code == 200, resp.text
+    detail = client.get(f"/api/v1/admin/orders/{order_id}", headers=_auth(atok)).json()
+    assert detail["status"] == "ready"
+    assert detail["assignment"]["rider_id"] is None

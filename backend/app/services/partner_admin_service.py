@@ -231,3 +231,49 @@ def add_admin_note(db: Session, rider_id: int, admin_id: int, note: str) -> None
         target_type="partner", target_id=rider_id, reason=note.strip(),
     )
     db.commit()
+
+
+def release_unpicked_work(db, rider_id: int) -> list[int]:
+    """Expire a partner's open offers and return accepted-but-not-picked-up
+    deliveries to the dispatch pool. Picked-up deliveries are left in place
+    (the food is with the partner; ops must handle those manually).
+    Returns the affected order ids.
+    """
+    from sqlalchemy import select as _select
+
+    from app.models.base import utcnow
+    from app.models.delivery import Delivery, DeliveryBatch, DeliveryOffer
+    from app.models.enums import DeliveryStatus, OfferStatus
+    from app.services import dispatch_service
+    from app.services.ws_manager import manager
+
+    affected: list[int] = []
+    for off in db.execute(
+        _select(DeliveryOffer).where(
+            DeliveryOffer.rider_id == rider_id, DeliveryOffer.status == OfferStatus.sent
+        )
+    ).scalars():
+        off.status = OfferStatus.expired
+        off.responded_at = utcnow()
+        batch = db.get(DeliveryBatch, off.batch_id)
+        if batch is not None:
+            for d in batch.deliveries:
+                affected.append(d.order_id)
+
+    deliveries = db.execute(
+        _select(Delivery).where(
+            Delivery.rider_id == rider_id,
+            Delivery.status.in_([DeliveryStatus.accepted, DeliveryStatus.en_route_to_mess]),
+        )
+    ).scalars().all()
+    for d in deliveries:
+        old_batch = db.get(DeliveryBatch, d.batch_id)
+        dispatch_service.release_delivery_to_dispatch(db, d)
+        if old_batch is not None:
+            db.refresh(old_batch)
+            dispatch_service.close_empty_batch(db, old_batch)
+        affected.append(d.order_id)
+    db.flush()
+    for order_id in set(affected):
+        manager.publish(order_id)
+    return sorted(set(affected))

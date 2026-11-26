@@ -1,6 +1,8 @@
 """Rider wallet balances, transactions and withdrawals."""
 from __future__ import annotations
 
+import secrets
+
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
@@ -25,10 +27,14 @@ FILTER_MAP = {
 }
 
 
-def _get_or_create_wallet(db: Session, rider_id: int) -> RiderWallet:
-    wallet = db.execute(
-        select(RiderWallet).where(RiderWallet.rider_id == rider_id)
-    ).scalar_one_or_none()
+def _get_or_create_wallet(db: Session, rider_id: int, lock: bool = False) -> RiderWallet:
+    """Fetch (or create) the rider's wallet. ``lock`` takes a row lock
+    (``SELECT ... FOR UPDATE`` on PostgreSQL) so concurrent withdrawals or
+    ledger syncs cannot both spend/credit the same balance."""
+    stmt = select(RiderWallet).where(RiderWallet.rider_id == rider_id)
+    if lock:
+        stmt = stmt.with_for_update()
+    wallet = db.execute(stmt).scalars().first()
     if wallet is None:
         wallet = RiderWallet(rider_id=rider_id)
         db.add(wallet)
@@ -185,7 +191,7 @@ def list_transactions(db: Session, rider_id: int, filter: str = "all") -> dict:
 def withdraw(db: Session, rider_id: int, amount_cents: int, account_id: str = "bank_primary") -> dict:
     if amount_cents <= IMPS_FEE_CENTS:
         raise HTTPException(status_code=400, detail="Amount must exceed the IMPS fee")
-    wallet = _get_or_create_wallet(db, rider_id)
+    wallet = _get_or_create_wallet(db, rider_id, lock=True)
     _recalculate_available(db, wallet)
     if amount_cents > wallet.available_balance_cents:
         raise HTTPException(status_code=400, detail="Insufficient available balance")
@@ -194,9 +200,17 @@ def withdraw(db: Session, rider_id: int, amount_cents: int, account_id: str = "b
     ).scalar_one_or_none()
     user = db.get(User, rider_id)
     accounts = _build_payout_accounts(profile, user)
-    account = next((a for a in accounts if a["id"] == account_id), accounts[0])
+    if not accounts:
+        raise HTTPException(
+            status_code=400, detail="Add your bank account details before withdrawing"
+        )
+    account = next((a for a in accounts if a["id"] == account_id), None)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Choose a valid payout account")
     dest = _account_destination_label(account)
-    ref = f"WD-{89214 + len(db.execute(select(WalletTransaction)).scalars().all())}"
+    # Unique, non-guessable-sequence reference (counting rows raced and
+    # loaded the whole ledger on every withdrawal).
+    ref = f"WD-{utcnow().strftime('%y%m%d')}-{secrets.token_hex(3).upper()}"
     from app.services.withdrawal_admin_service import _risk_for_rider
     risk_score, risk_label = _risk_for_rider(db, profile, user, amount_cents)
     txn = WalletTransaction(
@@ -228,7 +242,7 @@ def withdraw(db: Session, rider_id: int, amount_cents: int, account_id: str = "b
 
 def sync_from_deliveries(db: Session, rider_id: int) -> None:
     """Ensure order earnings appear in wallet ledger."""
-    wallet = _get_or_create_wallet(db, rider_id)
+    wallet = _get_or_create_wallet(db, rider_id, lock=True)
     deliveries = db.execute(
         select(Delivery)
         .join(Order, Delivery.order_id == Order.id)
