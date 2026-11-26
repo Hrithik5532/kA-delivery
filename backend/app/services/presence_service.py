@@ -9,6 +9,7 @@ check-in is older than ``online_heartbeat_timeout_seconds`` is not online.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -18,6 +19,8 @@ from app.config import settings
 from app.models.base import utcnow
 from app.models.user import RiderProfile
 from app.services import location_service
+
+logger = logging.getLogger(__name__)
 
 
 def _timeout() -> timedelta:
@@ -70,5 +73,9 @@ def sweep_stale_online(db: Session, now: datetime | None = None) -> int:
     # starts) so dispatch and dashboards never see an out-of-slot rider.
     from app.services import shift_service
 
-    shift_service.tick(db, now)
+    try:
+        shift_service.tick(db, now)
+    except Exception:  # never let slot rules take down dashboards/dispatch
+        logger.exception("Shift-slot reconcile failed; continuing without it")
+        db.rollback()
     return flipped

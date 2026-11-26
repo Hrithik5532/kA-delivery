@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
@@ -52,8 +52,32 @@ class Window:
 
 # --- Time helpers ---------------------------------------------------------
 
-def tz() -> ZoneInfo:
-    return ZoneInfo(settings.business_timezone)
+# Fixed offsets for zones without daylight saving, used when the host has no
+# IANA timezone database (slim images / missing ``tzdata`` package).
+_FIXED_OFFSETS = {
+    "Asia/Kolkata": timedelta(hours=5, minutes=30),
+    "Asia/Calcutta": timedelta(hours=5, minutes=30),
+    "UTC": timedelta(0),
+}
+_tz_cache: dict[str, object] = {}
+
+
+def tz():
+    name = settings.business_timezone
+    cached = _tz_cache.get(name)
+    if cached is not None:
+        return cached
+    try:
+        zone = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        offset = _FIXED_OFFSETS.get(name, timedelta(0))
+        logger.warning(
+            "Timezone %r not found (install the 'tzdata' package); using fixed UTC%+.1fh",
+            name, offset.total_seconds() / 3600,
+        )
+        zone = timezone(offset, name)
+    _tz_cache[name] = zone
+    return zone
 
 
 def local_now(now_utc: datetime | None = None) -> datetime:

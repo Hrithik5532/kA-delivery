@@ -5,7 +5,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -60,6 +61,27 @@ app = FastAPI(
 # browsers reject. Only enable credentials when explicit origins are configured
 # (set CORS_ORIGINS to your admin/web origins in production). Auth uses Bearer
 # tokens, not cookies, so credentials can stay off for the wildcard dev case.
+_log = logging.getLogger("app.errors")
+
+
+@app.middleware("http")
+async def _json_500(request: Request, call_next):
+    """Turn unhandled exceptions into a JSON 500 *inside* the CORS middleware.
+
+    Otherwise Starlette answers from its outermost error handler without CORS
+    headers, and browsers report a misleading "blocked by CORS policy" instead
+    of the real server error.
+    """
+    try:
+        return await call_next(request)
+    except Exception:
+        _log.exception("Unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error. Check the API logs for details."},
+        )
+
+
 _cors_origins = settings.cors_origin_list
 app.add_middleware(
     CORSMiddleware,

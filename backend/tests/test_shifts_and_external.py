@@ -437,3 +437,38 @@ def test_login_code_requires_partner_write_tier(client):
         db.commit()
     stok = login(client, "admin", "support2@x.app")
     assert client.post(f"/api/v1/admin/partners/{rid}/login-code", headers=_auth(stok)).status_code == 403
+
+
+# --- Resilience -------------------------------------------------------------
+
+def test_unhandled_error_is_json_500_with_cors(client, monkeypatch):
+    from app.services import presence_service
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(presence_service, "sweep_stale_online", boom)
+    atok = _admin(client)
+    resp = client.get(
+        "/api/v1/admin/partners", headers={**_auth(atok), "Origin": "https://delivery.example.com"}
+    )
+    assert resp.status_code == 500
+    assert resp.headers.get("access-control-allow-origin") in ("*", "https://delivery.example.com")
+    assert "Internal server error" in resp.json()["detail"]
+
+
+def test_partners_list_survives_missing_timezone_db(client, monkeypatch):
+    import zoneinfo
+
+    from app.services import shift_service
+
+    def missing(name):
+        raise zoneinfo.ZoneInfoNotFoundError(name)
+
+    monkeypatch.setattr(shift_service, "ZoneInfo", missing)
+    monkeypatch.setattr(shift_service, "_tz_cache", {})
+    atok = _admin(client)
+    _create_slot(client, atok, "Lunch", "11:00", "14:00")
+    assert client.get("/api/v1/admin/partners?limit=200", headers=_auth(atok)).status_code == 200
+    assert client.get("/api/v1/admin/overview", headers=_auth(atok)).status_code == 200
+    assert str(shift_service.local_now().utcoffset()) == "5:30:00"
