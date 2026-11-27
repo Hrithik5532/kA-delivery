@@ -45,8 +45,8 @@ def build_profile(db: Session, user: User) -> dict:
     earnings = earnings_service.summary_for_rider(db, user.id)
     docs = document_service.list_for_rider(db, user.id)
     verified = [d for d in docs if d.status == DocumentStatus.accepted]
-    total_docs = len(docs) if docs else 4
-    verified_count = len(verified) if verified else (4 if profile.approval_status.value == "approved" else 0)
+    total_docs = max(len(docs), 4)  # 4 required document types
+    verified_count = len(verified)
 
     # Several profile columns are nullable in the DB (unset for freshly
     # registered riders), but RiderProfileDetailOut requires non-null strings.
@@ -64,8 +64,8 @@ def build_profile(db: Session, user: User) -> dict:
     bank_line = ""
     if profile.bank_name:
         bank_line = f"{profile.bank_name} •• {profile.bank_account_masked}"
-        if profile.upi_linked:
-            bank_line += " (Instant UPI linked)"
+        if profile.upi_id:
+            bank_line += f" · UPI {profile.upi_id}"
 
     return {
         "id": user.id,
@@ -73,7 +73,7 @@ def build_profile(db: Session, user: User) -> dict:
         "email": profile.contact_email or user.email,
         "phone": user.phone,
         "partner_code": partner_code,
-        "rating": round(float(profile.rating or 5.0), 2),
+        "rating": round(float(profile.rating), 2) if profile.rating is not None else None,
         "trip_count": earnings.summary.total_deliveries,
         "is_online": profile.is_online,
         "approval_status": profile.approval_status,

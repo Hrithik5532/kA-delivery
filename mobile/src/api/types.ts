@@ -629,7 +629,7 @@ export interface RiderProfileDetail {
   email: string | null;
   phone: string | null;
   partner_code: string;
-  rating: number;
+  rating: number | null;
   trip_count: number;
   is_online: boolean;
   approval_status: ApprovalStatus;
@@ -680,4 +680,41 @@ export interface RiderSlots {
   next_slot_id: number | null;
   next_slot_starts_at: string | null;
   can_go_online_now: boolean;
+}
+
+export type SalaryStatus = 'draft' | 'approved' | 'paid' | 'cancelled';
+
+/** A monthly salary invoice (only approved/paid ones reach the app). */
+export interface SalaryInvoice {
+  id: number;
+  invoice_number: string;
+  rider_name: string;
+  partner_code: string | null;
+  bank_name: string;
+  bank_account_masked: string;
+  ifsc_code: string;
+  upi_id: string | null;
+  period: string;
+  period_label: string;
+  base_salary_cents: number;
+  additions_cents: number;
+  deductions_cents: number;
+  net_cents: number;
+  deliveries_count: number;
+  days_active: number;
+  status: SalaryStatus;
+  notes: string;
+  payment_reference: string | null;
+  approved_at: string | null;
+  paid_at: string | null;
+}
+
+export interface RiderSalary {
+  monthly_salary_cents: number | null;
+  current_period: string;
+  current_period_label: string;
+  current_month_deliveries: number;
+  current_month_days_active: number;
+  total_paid_cents: number;
+  invoices: SalaryInvoice[];
 }

@@ -20,7 +20,9 @@ import type { DeliveryHistoryResponse, HistoryPeriod, HistoryStatus,
   EarningsResponse,
   OtpRequestResponse,
   Offer,
+  RiderSalary,
   RiderSlots,
+  SalaryInvoice,
   OfferDetail,
   RiderDashboard,
   SupportHelp,
@@ -221,10 +223,6 @@ async function uploadMultipart<T>(path: string, fileUri: string, opts: UploadOpt
 }
 
 export const api = {
-  loginRider: (email: string, password: string) =>
-    request<Token>('/auth/rider/login', { method: 'POST', body: { email, password }, auth: false }),
-  requestRiderOtp: (phone: string) =>
-    request<OtpRequestResponse>('/auth/rider/otp/request', { method: 'POST', body: { phone }, auth: false }),
   verifyRiderOtp: (phone: string, code: string) =>
     request<Token>('/auth/rider/otp/verify', { method: 'POST', body: { phone, code }, auth: false }),
   registerRider: (body: {
@@ -263,15 +261,12 @@ export const api = {
   riderOnline: () => request<void>('/rider/online', { method: 'POST' }),
   riderOffline: () => request<void>('/rider/offline', { method: 'POST' }),
   riderSlots: () => request<RiderSlots>('/rider/slots'),
-  setRiderSlots: (slotIds: number[]) =>
-    request<RiderSlots>('/rider/slots', { method: 'PUT', body: { slot_ids: slotIds } }),
+  riderSalary: () => request<RiderSalary>('/rider/salary'),
+  riderSalaryInvoice: (id: number) => request<SalaryInvoice>(`/rider/salary/invoices/${id}`),
   riderOffers: () => request<Offer[]>('/rider/offers'),
   offerDetail: (offerId: number) => request<OfferDetail>(`/rider/offers/${offerId}`),
   riderActive: () => request<Batch | null>('/rider/active'),
   riderEarnings: () => request<EarningsResponse>('/rider/earnings'),
-  riderEarningsDetail: (view: 'weekly' | 'daily' = 'weekly') =>
-    request<EarningsDetailResponse>(`/rider/earnings/detail?view=${view}`),
-  riderCashout: () => request<CashoutResult>('/rider/earnings/cashout', { method: 'POST' }),
   riderHistory: (status: HistoryStatus = 'completed', period: HistoryPeriod = 'this_week') =>
     request<DeliveryHistoryResponse>(`/rider/history?status=${status}&period=${period}`),
   riderDashboard: () => request<RiderDashboard>('/rider/dashboard'),
@@ -366,9 +361,4 @@ export const api = {
     }),
   deliveryCompletion: (deliveryId: number) =>
     request<DeliveryCompletion>(`/deliveries/${deliveryId}/completion`),
-  riderWallet: () => request<WalletDetails>('/rider/wallet'),
-  riderWalletTransactions: (filter: WalletTxnFilter = 'all') =>
-    request<WalletTransactionsResponse>(`/rider/wallet/transactions?filter=${filter}`),
-  riderWalletWithdraw: (amount_cents: number, account_id = 'bank_primary') =>
-    request<WalletWithdrawResult>('/rider/wallet/withdraw', { method: 'POST', body: { amount_cents, account_id } }),
 };

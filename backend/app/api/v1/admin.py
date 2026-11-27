@@ -53,10 +53,6 @@ from app.schemas.admin import (
     PartnerListItem,
     ReasonRequest,
     RiderMarkerOut,
-    WithdrawalRequestOut,
-    WithdrawalSummaryOut,
-    WithdrawalDetailOut,
-    BulkWithdrawalApproveRequest,
 )
 from app.schemas.partner import DeliveryIssueOut, RiderDocumentOut
 from app.services import (
@@ -65,11 +61,9 @@ from app.services import (
     maps_service,
     order_admin_service,
     presence_service,
-    wallet_service,
     document_service,
     tracking_service,
     verification_service,
-    withdrawal_admin_service,
     partner_admin_service,
 )
 
@@ -383,20 +377,6 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
             Delivery.status == DeliveryStatus.delivered,
         )
     ).scalar_one()
-    week_start = datetime.now(timezone.utc) - timedelta(days=7)
-    week_earnings = db.execute(
-        select(func.coalesce(func.sum(Delivery.earning_cents), 0)).where(
-            Delivery.rider_id == profile.user_id,
-            Delivery.status == DeliveryStatus.delivered,
-            Delivery.delivered_at >= week_start,
-        )
-    ).scalar_one()
-    payout_pending = db.execute(
-        select(func.count(Delivery.id)).where(
-            Delivery.rider_id == profile.user_id,
-            Delivery.payout_status == PayoutStatus.pending,
-        )
-    ).scalar_one() > 0
     active_order = db.execute(
         select(Order.id)
         .join(Delivery, Delivery.order_id == Order.id)
@@ -407,7 +387,6 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
         .order_by(Order.id.desc())
         .limit(1)
     ).scalar_one_or_none()
-    wallet = wallet_service.build_wallet(db, profile.user_id)
     latest = location_service.latest_location(db, profile.user_id)
     return PartnerListItem(
         rider_id=profile.user_id,
@@ -426,9 +405,7 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
         vehicle_model=profile.vehicle_model or profile.vehicle_type.title(),
         vehicle_number=profile.vehicle_number,
         operating_hub=profile.operating_hub,
-        wallet_balance_cents=int(wallet["available_balance_cents"]),
-        week_earnings_cents=int(week_earnings or 0),
-        payout_pending=bool(payout_pending),
+        monthly_salary_cents=profile.monthly_salary_cents,
         active_order_id=active_order,
         last_lat=profile.last_lat,
         last_lng=profile.last_lng,
@@ -860,42 +837,3 @@ def order_tracking(
         raise HTTPException(status_code=403, detail="Not authorized")
     return tracking_service.build_snapshot(db, order)
 
-# --- Withdrawal requests --------------------------------------------------
-
-@router.get("/withdrawals/summary", response_model=WithdrawalSummaryOut)
-def withdrawals_summary(_: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalSummaryOut:
-    return WithdrawalSummaryOut.model_validate(withdrawal_admin_service.summary(db))
-
-
-@router.get("/withdrawals", response_model=Page[WithdrawalRequestOut])
-def list_withdrawals(
-    status: str | None = Query(default=None, description="all|pending_review|approved|rejected"),
-    q: str | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    _: User = Depends(_any_admin),
-    db: Session = Depends(get_db),
-) -> Page[WithdrawalRequestOut]:
-    items, total = withdrawal_admin_service.list_requests(db, status=status, q=q, limit=limit, offset=offset)
-    return Page(items=[WithdrawalRequestOut.model_validate(i) for i in items], total=total, limit=limit, offset=offset)
-
-
-
-
-@router.get("/withdrawals/{txn_id}", response_model=WithdrawalDetailOut)
-def withdrawal_detail(txn_id: int, _: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalDetailOut:
-    return WithdrawalDetailOut.model_validate(withdrawal_admin_service.get_detail(db, txn_id))
-
-@router.post("/withdrawals/{txn_id}/approve", response_model=WithdrawalRequestOut)
-def approve_withdrawal(txn_id: int, admin: User = Depends(_ops), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
-    return WithdrawalRequestOut.model_validate(withdrawal_admin_service.approve(db, txn_id, admin.id))
-
-
-@router.post("/withdrawals/{txn_id}/reject", response_model=WithdrawalRequestOut)
-def reject_withdrawal(txn_id: int, data: ReasonRequest, admin: User = Depends(_ops), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
-    return WithdrawalRequestOut.model_validate(withdrawal_admin_service.reject(db, txn_id, admin.id, data.reason))
-
-
-@router.post("/withdrawals/bulk-approve")
-def bulk_approve_withdrawals(data: BulkWithdrawalApproveRequest, admin: User = Depends(_ops), db: Session = Depends(get_db)):
-    return withdrawal_admin_service.bulk_approve(db, data.ids, admin.id)

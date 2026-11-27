@@ -13,8 +13,7 @@ import { Orders } from '@/pages/Orders';
 import { OrderDetailPage } from '@/pages/OrderDetail';
 import { Settings } from '@/pages/Settings';
 import { ShiftSlots } from '@/pages/ShiftSlots';
-import { Withdrawals } from '@/pages/Withdrawals';
-import { WithdrawalDetail } from '@/pages/WithdrawalDetail';
+import { Salary, SalaryInvoicePage } from '@/pages/Salary';
 import type { ReactNode } from 'react';
 
 function Protected({ children }: { children: ReactNode }) {
@@ -43,8 +42,8 @@ export function App() {
         <Route path="/partners/:riderId" element={<PartnerProfile />} />
         <Route path="/operations" element={<Operations />} />
         <Route path="/verification" element={<Verification />} />
-        <Route path="/withdrawals" element={<Withdrawals />} />
-        <Route path="/withdrawals/:id" element={<WithdrawalDetail />} />
+        <Route path="/salary" element={<Salary />} />
+        <Route path="/salary/:invoiceId" element={<SalaryInvoicePage />} />
         <Route path="/shift-slots" element={<ShiftSlots />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

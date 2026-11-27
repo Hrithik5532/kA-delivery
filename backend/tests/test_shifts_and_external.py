@@ -35,6 +35,17 @@ def _utc_for_local(hour: int, minute: int = 0) -> datetime:
     return local.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _set_rider_slots(client, slot_ids, email="rider@digimess.app"):
+    """Ops assign a partner's slots (partners can no longer pick their own)."""
+    from app.database import SessionLocal
+    from app.models.user import User
+
+    with SessionLocal() as db:
+        rid = db.query(User).filter(User.email == email).one().id
+    atok = _admin(client)
+    return client.put(f"/api/v1/admin/partners/{rid}/slots", headers=_auth(atok), json={"slot_ids": slot_ids})
+
+
 def _create_slot(client, atok, name, start, end, **extra) -> dict:
     resp = client.post(
         "/api/v1/admin/shift-slots",
@@ -87,9 +98,7 @@ def test_rider_must_choose_slot_and_be_inside_it(client, rider_token, monkeypatc
     assert resp.status_code == 409
     assert "Choose a working slot" in resp.json()["detail"]
 
-    resp = client.put(
-        "/api/v1/rider/slots", headers=_auth(rider_token), json={"slot_ids": [lunch["id"]]}
-    )
+    resp = _set_rider_slots(client, [lunch["id"]])
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["enforced"] is True
@@ -119,7 +128,7 @@ def test_scheduler_switches_online_at_start_and_offline_at_end(client, rider_tok
 
     atok = _admin(client)
     lunch = _create_slot(client, atok, "Lunch", "11:00", "14:00")
-    client.put("/api/v1/rider/slots", headers=_auth(rider_token), json={"slot_ids": [lunch["id"]]})
+    _set_rider_slots(client, [lunch["id"]])
 
     with SessionLocal() as db:
         rider = db.query(User).filter(User.email == "rider@digimess.app").one()
@@ -163,7 +172,7 @@ def test_slot_capacity_and_validation(client, rider_token):
     full = _create_slot(client, atok, "Tiny", "9:00", "10:00", max_riders=1)
     assert full["start_time"] == "09:00"
 
-    first = client.put("/api/v1/rider/slots", headers=_auth(rider_token), json={"slot_ids": [full["id"]]})
+    first = _set_rider_slots(client, [full["id"]])
     assert first.status_code == 200
 
     from fastapi import HTTPException
@@ -345,31 +354,12 @@ def test_support_tier_cannot_move_money_or_edit_partners(client):
         db.commit()
     stok = login(client, "admin", "support@x.app")
     h = _auth(stok)
-    assert client.get("/api/v1/admin/withdrawals", headers=h).status_code == 200  # can read
-    assert client.post("/api/v1/admin/withdrawals/1/approve", headers=h).status_code == 403
-    assert client.post("/api/v1/admin/withdrawals/bulk-approve", headers=h, json={"ids": [1]}).status_code == 403
+    assert client.get("/api/v1/admin/salary/invoices", headers=h).status_code == 200  # can read
+    assert client.post("/api/v1/admin/salary/invoices/1/approve", headers=h).status_code == 403
+    assert client.post("/api/v1/admin/salary/invoices/generate", headers=h, json={"period": "2026-11"}).status_code == 403
+    assert client.put(f"/api/v1/admin/partners/{rid}/slots", headers=h, json={"slot_ids": []}).status_code == 403
     assert client.patch(f"/api/v1/admin/partners/{rid}", headers=h, json={"bank_name": "X"}).status_code == 403
     assert client.post(f"/api/v1/admin/partners/{rid}/suspend", headers=h, json={"reason": "x"}).status_code == 403
-
-
-def test_withdraw_without_bank_account_is_400_not_500(client, rider_token):
-    from app.database import SessionLocal
-    from app.models.user import RiderProfile, User
-    from app.services import wallet_service
-
-    with SessionLocal() as db:
-        rider = db.query(User).filter(User.email == "rider@digimess.app").one()
-        prof = db.query(RiderProfile).filter(RiderProfile.user_id == rider.id).one()
-        prof.bank_name = ""
-        prof.bank_account_masked = ""
-        wallet = wallet_service._get_or_create_wallet(db, rider.id)
-        wallet.total_balance_cents = 100000
-        wallet.available_balance_cents = 100000
-        db.commit()
-    resp = client.post("/api/v1/rider/wallet/withdraw", headers=_auth(rider_token),
-                       json={"amount_cents": 20000, "account_id": "bank_primary"})
-    assert resp.status_code == 400, resp.text
-    assert "bank" in resp.json()["detail"].lower()
 
 
 def test_suspending_partner_releases_accepted_order(client, partner_key):
@@ -402,19 +392,21 @@ def test_admin_login_code_lets_partner_sign_in(client, monkeypatch):
     from app.database import SessionLocal
     from app.models.user import User
 
-    monkeypatch.setattr(settings, "default_otp", "")  # no dev bypass
+    monkeypatch.setattr(settings, "default_otp", "1212")  # dev bypass must NOT work for partners
     atok = _admin(client)
     with SessionLocal() as db:
         rider = db.query(User).filter(User.email == "rider@digimess.app").one()
         rid, phone = rider.id, rider.phone
 
+    assert client.post("/api/v1/auth/rider/otp/verify", json={"phone": phone, "code": "1212"}).status_code == 401
+    first = client.post(f"/api/v1/admin/partners/{rid}/login-code", headers=_auth(atok)).json()["code"]
     resp = client.post(f"/api/v1/admin/partners/{rid}/login-code", headers=_auth(atok))
     assert resp.status_code == 200, resp.text
     code = resp.json()["code"]
+    if first != code:  # a new code voids the previous unused one
+        assert client.post("/api/v1/auth/rider/otp/verify", json={"phone": phone, "code": first}).status_code == 401
     assert len(code) == 4 and code.isdigit()
 
-    # Rider taps "Send OTP" afterwards (creates a newer code) - the ops code still works.
-    client.post("/api/v1/auth/rider/otp/request", json={"phone": phone})
     ok = client.post("/api/v1/auth/rider/otp/verify", json={"phone": phone, "code": code})
     assert ok.status_code == 200, ok.text
     assert ok.json()["access_token"]

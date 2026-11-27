@@ -17,7 +17,7 @@ import { Loading } from '@/components/Loading';
 import { PartnerCard, PartnerHeader } from '@/components/partner';
 import { Text } from '@/components/ui/Text';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
-import { colors, money, spacing } from '@/theme';
+import { colors, spacing } from '@/theme';
 
 const PERIODS: { key: HistoryPeriod; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -70,20 +70,7 @@ function HistoryCard({ item }: { item: DeliveryHistoryResponse['items'][number] 
         <View style={styles.footerLeft}>
           <Ionicons name="time-outline" size={14} color={colors.textMuted} />
           <Text variant="caption" style={styles.metaText}>{meta}</Text>
-          {item.tip_cents > 0 ? (
-            <View style={styles.tipBadge}>
-              <Text variant="caption" style={styles.tipText}>+{money(item.tip_cents)} Tip</Text>
-            </View>
-          ) : null}
-          {item.has_surge && item.surge_multiplier ? (
-            <View style={styles.surgeBadge}>
-              <Text variant="caption" style={styles.surgeText}>Surge {item.surge_multiplier}x</Text>
-            </View>
-          ) : null}
         </View>
-        {isCompleted ? (
-          <Text variant="h3" style={styles.amount}>{money(item.amount_cents + item.tip_cents)}</Text>
-        ) : null}
       </View>
     </PartnerCard>
   );
@@ -193,11 +180,6 @@ export default function DeliveryHistory() {
                 <Text variant="h3">{summary.completed_count} Deliveries</Text>
               </View>
             </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryCol}>
-              <Text variant="caption" style={styles.summaryLabel}>Total Earned</Text>
-              <Text variant="display" style={styles.summaryAmount}>{money(summary.total_earned_cents)}</Text>
-            </View>
           </PartnerCard>
         ) : null}
 
@@ -209,7 +191,7 @@ export default function DeliveryHistory() {
             <EmptyState
               icon="time-outline"
               title={status === 'completed' ? 'No completed deliveries' : 'No cancelled deliveries'}
-              subtitle="Try a different date range or go online to start earning."
+              subtitle="Try a different date range."
             />
           }
           renderItem={({ item }) => <HistoryCard item={item} />}

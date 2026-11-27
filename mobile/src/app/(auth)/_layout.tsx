@@ -12,7 +12,6 @@ export default function AuthLayout() {
     >
       <Stack.Screen name="welcome" />
       <Stack.Screen name="login" />
-      <Stack.Screen name="otp" />
       <Stack.Screen name="register-rider" />
     </Stack>
   );

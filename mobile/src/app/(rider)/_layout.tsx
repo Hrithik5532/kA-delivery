@@ -40,7 +40,7 @@ export default function RiderLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="bicycle" color={color} size={size} /> }} />
       <Tabs.Screen name="deliveries" options={{ title: 'History', tabBarIcon: ({ color, size }) => <Ionicons name="document-text" color={color} size={size} /> }} />
-      <Tabs.Screen name="earnings" options={{ title: 'Earnings', tabBarIcon: ({ color, size }) => <Ionicons name="cash" color={color} size={size} /> }} />
+      <Tabs.Screen name="salary/index" options={{ title: 'Salary', tabBarIcon: ({ color, size }) => <Ionicons name="wallet" color={color} size={size} /> }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="id-card" color={color} size={size} /> }} />
       <Tabs.Screen name="request/[offerId]" options={{ href: null }} />
       <Tabs.Screen name="active" options={{ href: null }} />
@@ -48,7 +48,7 @@ export default function RiderLayout() {
       <Tabs.Screen name="complete/[deliveryId]" options={{ href: null }} />
       <Tabs.Screen name="documents" options={{ href: null }} />
       <Tabs.Screen name="help" options={{ href: null }} />
-      <Tabs.Screen name="wallet" options={{ href: null }} />
+      <Tabs.Screen name="salary/[invoiceId]" options={{ href: null }} />
       <Tabs.Screen name="slots" options={{ href: null }} />
     </Tabs>
     </RiderLiveLocation>

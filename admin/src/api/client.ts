@@ -21,12 +21,13 @@ import type {
   PartnerApiKeySecret,
   PartnerLoginCode,
   RiderSlots,
+  SalaryGenerateResult,
+  SalaryInvoice,
+  SalaryInvoiceUpdate,
+  SalaryList,
   ShiftSlot,
   ShiftSlotPayload,
   Token,
-  WithdrawalRequest,
-  WithdrawalSummary,
-  WithdrawalDetail,
 } from '@/api/types';
 
 const TOKEN_KEY = 'digimess.admin.token';
@@ -177,15 +178,22 @@ export const api = {
     request<DeliveryIssue>(`/admin/issues/${issueId}/resolve`, { method: 'POST' }),
 
   // Operations
-  withdrawalsSummary: () => request<WithdrawalSummary>('/admin/withdrawals/summary'),
-  withdrawal: (id: number) => request<WithdrawalDetail>(`/admin/withdrawals/${id}`),
-  withdrawals: (params: { status?: string; q?: string } = {}) =>
-    request<Page<WithdrawalRequest>>(`/admin/withdrawals${qs({ ...params, limit: 200 })}`),
-  approveWithdrawal: (id: number) => request<WithdrawalRequest>(`/admin/withdrawals/${id}/approve`, { method: 'POST' }),
-  rejectWithdrawal: (id: number, reason: string) =>
-    request<WithdrawalRequest>(`/admin/withdrawals/${id}/reject`, { method: 'POST', body: { reason } }),
-  bulkApproveWithdrawals: (ids: number[]) =>
-    request<{ count: number }>('/admin/withdrawals/bulk-approve', { method: 'POST', body: { ids } }),
+  // Salary invoices
+  salaryInvoices: (params: { period?: string; status?: string } = {}) =>
+    request<SalaryList>(`/admin/salary/invoices${qs(params)}`),
+  salaryInvoice: (id: number) => request<SalaryInvoice>(`/admin/salary/invoices/${id}`),
+  generateSalary: (period: string, riderId?: number) =>
+    request<SalaryGenerateResult>('/admin/salary/invoices/generate', { method: 'POST', body: { period, rider_id: riderId } }),
+  updateSalaryInvoice: (id: number, body: SalaryInvoiceUpdate) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}`, { method: 'PATCH', body }),
+  approveSalaryInvoice: (id: number) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}/approve`, { method: 'POST' }),
+  paySalaryInvoice: (id: number, payment_reference: string) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}/paid`, { method: 'POST', body: { payment_reference } }),
+  cancelSalaryInvoice: (id: number, reason: string) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}/cancel`, { method: 'POST', body: { reason } }),
+  deleteSalaryInvoice: (id: number) =>
+    request<void>(`/admin/salary/invoices/${id}`, { method: 'DELETE' }),
 
   activeDeliveries: () => request<ActiveDelivery[]>('/admin/deliveries/active'),
 

@@ -19,24 +19,36 @@ export const config = {
   locationDistanceM: num(process.env.EXPO_PUBLIC_LOCATION_DISTANCE_M, 30),
   wsReconnectBaseMs: 1000,
   wsReconnectMaxMs: 15000,
-  /** Dev default for login + delivery OTP (matches backend DEFAULT_OTP). */
-  defaultOtp: process.env.EXPO_PUBLIC_DEFAULT_OTP ?? '1212',
 };
 
 /** Whether map API credentials are configured. */
 export const hasMapCredentials =
   config.mapProvider !== 'none' && config.mapApiKey.trim().length > 0;
 
-/**
- * react-native-maps + PROVIDER_GOOGLE needs the Maps SDK key baked into a custom
- * native build. Expo Go and bad keys render a blank/black map tile layer.
- */
-export const useNativeGoogleMaps =
-  hasMapCredentials &&
-  Platform.OS !== 'web' &&
-  Constants.appOwnership !== 'expo';
+const isExpoGo = Constants.appOwnership === 'expo';
 
-/** Interactive map: Google JS on web; native Google only in custom dev/prod builds. */
-export const useInteractiveMap = Platform.OS === 'web'
-  ? hasMapCredentials
-  : useNativeGoogleMaps;
+/**
+ * Google provider on native needs the Maps SDK key baked into a custom build
+ * (EAS env EXPO_PUBLIC_MAP_API_KEY). Without it Android renders a blank grid.
+ */
+export const useNativeGoogleMaps = hasMapCredentials && Platform.OS !== 'web' && !isExpoGo;
+
+/**
+ * Whether a native interactive map can render:
+ * - iOS always can (Apple Maps when there is no Google key),
+ * - Expo Go ships its own map keys,
+ * - Android standalone builds need the Google key.
+ */
+export const useNativeMap =
+  Platform.OS !== 'web' && (hasMapCredentials || Platform.OS === 'ios' || isExpoGo);
+
+/** Interactive map: Google JS on web (needs key); native map per useNativeMap. */
+export const useInteractiveMap = Platform.OS === 'web' ? hasMapCredentials : useNativeMap;
+
+if (__DEV__ && Platform.OS === 'android' && !isExpoGo && !hasMapCredentials) {
+  // Surfaces the most common "maps not working" cause in dev builds.
+  console.warn(
+    'EXPO_PUBLIC_MAP_API_KEY is not set for this build: Android maps are disabled. ' +
+      'Store it with `eas env:create` (see docs/environment-setup.md).',
+  );
+}

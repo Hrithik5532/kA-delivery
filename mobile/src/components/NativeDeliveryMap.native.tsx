@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Constants from 'expo-constants';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
-import { config } from '@/config';
+import { useNativeGoogleMaps } from '@/config';
 import type { LatLng } from '@/lib/map-route';
 import type { TrackerMarkerKind } from '@/components/DeliveryTrackerMap';
 import type { NativeDeliveryMapProps, NativeMapMarker } from './native-delivery-map.types';
@@ -55,11 +54,9 @@ function MarkerBadge({ marker }: { marker: NativeMapMarker }) {
 
 export function NativeDeliveryMap({ route, markers, style, onMapReady }: NativeDeliveryMapProps) {
   const mapRef = useRef<MapView | null>(null);
-  const useGoogleProvider =
-    config.mapProvider === 'google' &&
-    config.mapApiKey.trim().length > 0 &&
-    Constants.appOwnership !== 'expo';
-  const provider = useGoogleProvider ? PROVIDER_GOOGLE : undefined;
+  // Google when the key is in this build; otherwise the platform default
+  // (Apple Maps on iOS, Expo Go's bundled key on Android).
+  const provider = useNativeGoogleMaps ? PROVIDER_GOOGLE : undefined;
 
   const allCoords = useMemo(() => {
     const coords = [...route.map(toCoord), ...markers.map((m) => ({ latitude: m.lat, longitude: m.lng }))];
@@ -109,7 +106,7 @@ export function NativeDeliveryMap({ route, markers, style, onMapReady }: NativeD
         style={StyleSheet.absoluteFill}
         provider={provider}
         initialRegion={initialRegion}
-        showsUserLocation={false}
+        showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}
         toolbarEnabled={false}

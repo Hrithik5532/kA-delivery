@@ -1538,3 +1538,11 @@ tr.clickable:hover { background: #FAFBFF; cursor: pointer; }
   display: flex; flex-direction: column;
   box-shadow: -8px 0 24px rgba(0,0,0,0.12);
 }
+
+/* Salary invoice: print only the document. */
+@media print {
+  .sidebar, .no-print, .app-header, .topbar, header { display: none !important; }
+  .main, .content { margin: 0 !important; padding: 0 !important; }
+  .salary-doc { box-shadow: none !important; border: none !important; }
+  body { background: #fff !important; }
+}

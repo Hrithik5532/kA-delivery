@@ -14,6 +14,7 @@ from app.services.ws_manager import manager
 from app.api.v1 import (
     admin,
     admin_api_keys,
+    admin_salary,
     admin_shifts,
     auth,
     deliveries,
@@ -100,6 +101,7 @@ api.include_router(deliveries.router)
 api.include_router(admin.router)
 api.include_router(admin_api_keys.router)
 api.include_router(admin_shifts.router)
+api.include_router(admin_salary.router)
 api.include_router(partner.router)
 api.include_router(tracking_ws.router)
 

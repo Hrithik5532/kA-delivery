@@ -7,7 +7,7 @@ Demo credentials (password for all: ``password123``):
   * admin@kadelivery.app     — super admin
   * verifier@digimess.app    — partner-verification admin
   * ops@digimess.app         — operations admin
-  * rider@digimess.app       — approved rider (delivery OTP in dev: 1212)
+  * rider@digimess.app       — approved rider (sign in with an admin login code)
   * rider2@digimess.app      — second approved rider (for multi-rider tests)
   * applicant@digimess.app   — rider application under review
 """

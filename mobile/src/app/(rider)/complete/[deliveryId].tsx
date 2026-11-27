@@ -14,53 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { Text } from '@/components/ui/Text';
-import { colors, money, spacing } from '@/theme';
-
-function PayoutLine({
-  icon,
-  iconColor,
-  iconBg,
-  title,
-  subtitle,
-  amount,
-  badge,
-  badgeTone,
-  highlight,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconBg: string;
-  title: string;
-  subtitle: string;
-  amount: string;
-  badge?: string;
-  badgeTone?: 'surge' | 'tip';
-  highlight?: boolean;
-}) {
-  return (
-    <View style={[styles.payoutLine, highlight && styles.payoutLineHighlight]}>
-      <View style={[styles.payoutLineIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.payoutLineTitleRow}>
-          <Text variant="label">{title}</Text>
-          {badge ? (
-            <View style={[styles.lineBadge, badgeTone === 'surge' ? styles.surgeBadge : styles.tipBadge]}>
-              <Text variant="caption" style={badgeTone === 'surge' ? styles.surgeBadgeText : styles.tipBadgeText}>
-                {badge}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        <Text variant="caption" style={{ color: colors.textMuted }}>{subtitle}</Text>
-      </View>
-      <Text variant="label" style={[styles.payoutAmount, badgeTone === 'tip' && { color: colors.secondary }]}>
-        {amount}
-      </Text>
-    </View>
-  );
-}
+import { colors, spacing } from '@/theme';
 
 function SuccessScreen({
   data,
@@ -73,7 +27,6 @@ function SuccessScreen({
   onContinue: () => void;
   onIssue: () => void;
 }) {
-  const payout = data.payout;
   const tabBarHeight = useTabBarHeight();
   return (
     <View style={styles.screen}>
@@ -100,20 +53,6 @@ function SuccessScreen({
           {data.ticket_ref} delivered successfully
         </Text>
 
-        <PartnerCard variant="lowest" style={styles.earnedCard}>
-          <View style={styles.earnedHeader}>
-            <Ionicons name="wallet" size={20} color={colors.secondary} />
-            <Text variant="label" style={{ color: colors.textMuted }}>Earned This Trip</Text>
-          </View>
-          <Text variant="display" style={styles.earnedAmount}>{money(data.total_earned_cents)}</Text>
-          {data.wallet_credited ? (
-            <View style={styles.walletNote}>
-              <Ionicons name="checkmark-circle" size={14} color={colors.secondary} />
-              <Text variant="caption" style={styles.walletNoteText}>Added to your instant wallet balance</Text>
-            </View>
-          ) : null}
-        </PartnerCard>
-
         <View style={styles.statsRow}>
           <PartnerCard variant="container" style={styles.statCard}>
             <View style={styles.statHeader}>
@@ -136,65 +75,6 @@ function SuccessScreen({
             </Text>
           </PartnerCard>
         </View>
-
-        <PartnerCard variant="lowest" style={styles.breakdownCard}>
-          <View style={styles.breakdownHeader}>
-            <Text variant="h3">Payout Breakdown</Text>
-            <View style={styles.completedPill}>
-              <Text variant="caption" style={styles.completedPillText}>Completed</Text>
-            </View>
-          </View>
-
-          <PayoutLine
-            icon="bicycle"
-            iconColor={colors.primary}
-            iconBg={colors.primaryFixed}
-            title="Base fare"
-            subtitle={payout.base_fare_label}
-            amount={money(payout.base_fare_cents)}
-          />
-          <PayoutLine
-            icon="navigate"
-            iconColor={colors.secondary}
-            iconBg={colors.secondaryFixed}
-            title="Distance pay"
-            subtitle={payout.distance_label}
-            amount={money(payout.distance_pay_cents)}
-          />
-          {payout.surge_bonus_cents > 0 ? (
-            <PayoutLine
-              icon="flame"
-              iconColor="#E65100"
-              iconBg="#FFF0E0"
-              title="Surge peak bonus"
-              subtitle={payout.surge_zone ?? 'Peak demand zone'}
-              amount={`+${money(payout.surge_bonus_cents)}`}
-              badge={payout.surge_label ?? undefined}
-              badgeTone="surge"
-              highlight
-            />
-          ) : null}
-          {payout.tip_cents > 0 ? (
-            <PayoutLine
-              icon="heart"
-              iconColor={colors.secondary}
-              iconBg={colors.successContainer}
-              title="Customer Tip"
-              subtitle={`Direct from ${payout.tip_customer}`}
-              amount={`+${money(payout.tip_cents)}`}
-              badge="100% yours"
-              badgeTone="tip"
-            />
-          ) : null}
-
-          <View style={styles.breakdownTotal}>
-            <View>
-              <Text variant="caption" style={{ color: colors.textMuted }}>Net trip earnings</Text>
-              <Text variant="label" style={{ fontWeight: '800' }}>Total Credited</Text>
-            </View>
-            <Text variant="h2" style={{ color: colors.primary }}>{money(payout.total_cents)}</Text>
-          </View>
-        </PartnerCard>
 
         <PartnerCard variant="container" style={styles.orderBar}>
           <View style={styles.orderThumb}>

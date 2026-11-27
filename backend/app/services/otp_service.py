@@ -20,10 +20,10 @@ def _bypass_enabled() -> bool:
 
 
 def generate_otp() -> str:
-    if settings.is_production:
-        length = max(settings.otp_length, 4)
-        return "".join(str(secrets.randbelow(10)) for _ in range(length))
-    return settings.default_otp
+    if _bypass_enabled():
+        return settings.default_otp
+    length = max(settings.otp_length, 4)
+    return "".join(str(secrets.randbelow(10)) for _ in range(length))
 
 
 def otp_matches(provided: str, expected: str | None) -> bool:

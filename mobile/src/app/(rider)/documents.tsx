@@ -280,9 +280,9 @@ export default function Documents() {
               <Ionicons name="notifications" size={20} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text variant="label">Instant Alerts Enabled</Text>
+              <Text variant="label">Verification updates</Text>
               <Text variant="caption" style={{ color: colors.textMuted, marginTop: 2 }}>
-                You will receive SMS and push notifications when your verification status changes.
+                Your verification status updates here as soon as the team reviews your documents.
               </Text>
             </View>
           </View>
@@ -359,7 +359,7 @@ export default function Documents() {
                 <Ionicons name="bicycle" size={28} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="label">Ready to start earning?</Text>
+                <Text variant="label">Ready to start delivering?</Text>
                 <Text variant="caption" style={{ color: colors.textMuted, marginTop: 4 }}>
                   Once verified, go online from Home and accept your first delivery offer.
                 </Text>

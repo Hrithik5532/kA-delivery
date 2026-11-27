@@ -111,9 +111,7 @@ class PartnerListItem(BaseModel):
     vehicle_model: str = ""
     vehicle_number: str = ""
     operating_hub: str = ""
-    wallet_balance_cents: int = 0
-    week_earnings_cents: int = 0
-    payout_pending: bool = False
+    monthly_salary_cents: int | None = None
     active_order_id: int | None = None
     last_lat: float | None = None
     last_lng: float | None = None
@@ -176,6 +174,7 @@ class PartnerAdminNoteOut(BaseModel):
 
 
 class PartnerUpdateRequest(BaseModel):
+    monthly_salary_cents: int | None = Field(default=None, ge=0, le=100_000_000)
     full_name: str | None = None
     phone: str | None = None
     email: str | None = None
@@ -215,20 +214,14 @@ class PartnerDetail(PartnerListItem):
     emergency_contact: str = ""
     contact_email: str | None = None
     vehicle_fuel_type: str | None = None
-    shift_preference: str = "Flexible"
-    max_active_orders: int = 2
-    total_earned_cents: int = 0
+    # Working slots assigned by ops, e.g. "Lunch (11 AM – 2 PM)".
+    shift_preference: str | None = None
     cancel_rate_pct: float = 0.0
     tenure_months: int = 0
-    wallet_locked_cents: int = 0
-    wallet_available_cents: int = 0
-    wallet_total_cents: int = 0
     upi_id: str | None = None
     ifsc_code: str = ""
-    daily_cashout_limit_cents: int = 5_000_000
     documents: list[RiderDocumentOut] = []
     kyc_items: list[PartnerKycItemOut] = []
-    wallet_transactions: list[PartnerWalletTxnOut] = []
     active_order: PartnerActiveOrderOut | None = None
     delivery_history: list[PartnerDeliveryRowOut] = []
     admin_notes: list[PartnerAdminNoteOut] = []

@@ -28,18 +28,25 @@ ops assign a delivery partner, and the platform polls
   cancel when needed. Authenticated with `X-API-Key`.
 - **Delivery partner**: register (+ vehicle info) with approval gating,
   go online/offline, receive & accept/reject batched delivery offers, navigate,
-  confirm pickup, **complete each stop with the customer's OTP**, and view
-  earnings/payouts.
+  confirm pickup, **complete each stop with a doorstep proof photo**, and view
+  their monthly salary and salary invoices.
 - **Shift slots**: ops define daily working slots (default Lunch 11 AM–2 PM,
-  Dinner 7 PM–10 PM) under **Shift Slots**; partners pick theirs in the app
-  (Profile → Working Slots). Partners are switched online when a selected slot
-  starts and offline when it ends (after any delivery in progress), and cannot
-  go online outside their slots. Deactivate all slots to disable.
-- **Admin login codes**: with no SMS gateway, ops open a partner's profile →
-  **App login code** → **Generate** and share the 4-digit code (copy or
-  WhatsApp). The partner enters their phone + code in the app. Codes are
-  one-time, expire in 15 minutes (`ADMIN_LOGIN_CODE_EXPIRY_MINUTES`) and lock
-  after 5 wrong tries.
+  Dinner 7 PM–10 PM) under **Shift Slots** and assign them to each partner
+  (partner profile → Working slots). The app shows them read-only. Partners are
+  switched online when an assigned slot starts and offline when it ends (after
+  any delivery in progress), and cannot go online outside their slots.
+  Deactivate all slots to disable.
+- **Monthly salary**: partners are salaried — no per-delivery earnings, tips,
+  wallet or withdrawals. Ops set each partner's monthly salary (Edit partner),
+  then **Salary** → *Generate invoices for month* creates drafts; ops adjust
+  additions/deductions, approve (the partner sees it in the app's Salary tab),
+  and mark paid with the UTR. Invoices print / save as PDF.
+- **Partner login = admin login code**: the app has a single sign-in screen
+  (mobile number + 4-digit code). Ops open the partner's profile → **App login
+  code** → **Generate** and share it (copy or WhatsApp). Each code works once
+  (generate a new one for every sign-in); generating a new code voids the
+  previous unused one; codes expire after 24 h (`ADMIN_LOGIN_CODE_EXPIRY_MINUTES`)
+  and lock after 5 wrong tries. There is no fixed/default code.
 - **External couriers**: when a rider is booked on Porter/Rapido/etc., ops enter
   the rider's name, contact and vehicle on the order page; the partner tracking
   API returns them so the consumer app shows them automatically.
@@ -109,14 +116,16 @@ Customers sign in by **phone + OTP** — use `+919000000001` (the seeded custome
 or any number to create a new account. In dev the code is returned in the API
 response and shown in the app, so no SMS gateway is needed.
 
-Admins, riders and mess owners sign in with **email + password** (`password123`):
+Admins sign in with **email + password** (`password123` for the demo seed).
+Partners (riders) sign in on the app with **mobile number + a login code** that
+an admin generates from the partner's profile:
 
 | Role     | Email                    | Notes                                        |
 |----------|--------------------------|----------------------------------------------|
 | Admin    | `admin@kadelivery.app`     | Super admin (all permissions)                |
 | Admin    | `verifier@digimess.app`  | Partner-verification tier                    |
 | Admin    | `ops@digimess.app`       | Operations tier (assignment, live map)       |
-| Rider    | `rider@digimess.app`     | Approved; can go online                      |
+| Rider    | `rider@digimess.app`     | Approved; sign in with an admin login code   |
 | Rider    | `applicant@digimess.app` | Application **under review** (approve in UI) |
 | Mess     | `mess@digimess.app`      | Owns "Digi Mess Kitchen"                     |
 | Combo    | `combo@digimess.app`     | customer + rider (role switch demo)          |
@@ -130,7 +139,9 @@ This is the primary golden path for the delivery-partner platform:
 
 1. **Admin** (`admin@kadelivery.app`) signs in to the dashboard → **Partner
    verification** → open `applicant@digimess.app` → review documents → **Approve**.
-2. On mobile, the approved **partner** signs in and taps **ONLINE**.
+2. **Admin** opens the partner → **Generate login code**, sets their working
+   slots and monthly salary. On mobile the partner signs in with their number +
+   code and goes **ONLINE** during their slot.
    (New applicants upload documents under **Manage documents & verification**.)
 3. **Admin** → **Settings** → **Partner API keys** → **Generate key**, then
    register an order id with it:
@@ -143,10 +154,9 @@ This is the primary golden path for the delivery-partner platform:
    the device location broadcast begins.
 6. **Admin** → **Live operations** map shows the moving marker with a
    last-updated time and a **stale** indicator if updates stop.
-7. **Partner** enters the delivery **OTP** → **Complete delivery**. Meanwhile
+7. **Partner** takes the doorstep photo → **Complete delivery**. Meanwhile
    `POST /api/v1/partner/tracking` returns the partner's details and location.
-8. **Admin** → **Orders & issues** shows the final status and full timeline;
-   earnings update in the partner app.
+8. **Admin** → **Orders & issues** shows the final status and full timeline.
 
 > The **customer ordering app** is not part of this project — orders come from
 > the external platform via [`docs/integration-guide.md`](docs/integration-guide.md).

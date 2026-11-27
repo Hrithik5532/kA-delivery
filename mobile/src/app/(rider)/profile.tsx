@@ -48,16 +48,10 @@ export default function RiderProfile() {
   const [profile, setProfile] = useState<RiderProfileDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [updatingLanguage, setUpdatingLanguage] = useState(false);
-  const [wallet, setWallet] = useState<WalletDetails | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [data, walletData] = await Promise.all([
-        api.riderProfile(),
-        api.riderWallet().catch(() => null),
-      ]);
-      setProfile(data);
-      setWallet(walletData);
+      setProfile(await api.riderProfile());
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not load profile');
@@ -117,8 +111,8 @@ export default function RiderProfile() {
   if (!profile) return null;
 
   const verified = profile.approval_status === 'approved';
-  const tripLabel = profile.trip_count >= 540 ? `${profile.trip_count}+ trips` : `${profile.trip_count} trips`;
-  const ratingLabel = `${profile.rating.toFixed(2)} (${tripLabel})`;
+  const tripLabel = `${profile.trip_count} trips`;
+  const ratingLabel = profile.rating != null ? `${profile.rating.toFixed(2)} (${tripLabel})` : tripLabel;
 
   return (
     <View style={styles.screen}>
@@ -161,12 +155,6 @@ export default function RiderProfile() {
             <View style={{ flex: 1 }}>
               <Text variant="caption" style={styles.fleetLabel}>FLEET STATUS</Text>
               <Text variant="label">{profile.fleet_tier}</Text>
-            </View>
-            <View style={styles.surgePill}>
-              <Ionicons name="flash" size={12} color={colors.onTertiaryFixed} />
-              <Text variant="caption" style={styles.surgeText}>
-                +{profile.surge_priority_pct}% Surge Priority
-              </Text>
             </View>
           </View>
         </PartnerCard>
@@ -246,17 +234,15 @@ export default function RiderProfile() {
         <PartnerCard variant="container" style={styles.menuCard}>
           <ProfileMenuItem
             icon="wallet"
-            label="My Wallet"
-            subtitle={wallet
-              ? `${money(wallet.available_balance_cents)} available • Withdraw instantly`
-              : 'View balance, withdraw & transactions'}
+            label="Salary & Invoices"
+            subtitle="Monthly salary and salary invoices"
             highlighted
-            onPress={() => router.push('/(rider)/wallet' as never)}
+            onPress={() => router.push('/(rider)/salary' as never)}
           />
           <ProfileMenuItem
             icon="time"
-            label="Working Slots"
-            subtitle="Choose the shifts you work (e.g. lunch, dinner)"
+            label="My Working Slots"
+            subtitle="Shift timings set by your operations team"
             onPress={() => router.push('/(rider)/slots' as never)}
           />
           <ProfileMenuItem
@@ -266,15 +252,9 @@ export default function RiderProfile() {
             onPress={() => router.push('/(rider)/documents' as never)}
           />
           <ProfileMenuItem
-            icon="card"
-            label="Bank & Payout Settings"
-            subtitle={profile.bank_summary || 'Link your bank account for weekly payouts'}
-            onPress={() => router.push('/(rider)/wallet/withdraw' as never)}
-          />
-          <ProfileMenuItem
             icon="headset"
             label="Help & Partner Support"
-            subtitle="24/7 partner support center"
+            subtitle="Contact the operations team"
             onPress={() => router.push('/(rider)/help' as never)}
           />
           <View style={styles.languageRow}>

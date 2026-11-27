@@ -21,7 +21,7 @@ const NAV = [
   { to: '/operations', label: 'Live Tracking', Icon: IconTracking },
   { to: '/shift-slots', label: 'Shift Slots', Icon: IconShifts },
   { to: '/verification', label: 'Partner Verification', Icon: IconVerification },
-  { to: '/withdrawals', label: 'Withdrawal Requests', Icon: IconWithdrawals },
+  { to: '/salary', label: 'Salary', Icon: IconWithdrawals },
   { to: '/settings', label: 'Settings', Icon: IconSettings },
 ];
 

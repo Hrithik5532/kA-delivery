@@ -103,6 +103,8 @@ class RiderProfile(Base, TimestampMixin):
     # this rider online for. Ensures auto-online happens once per window, so a
     # rider who deliberately goes offline mid-slot is not forced back online.
     shift_auto_online_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Partners are salaried: fixed monthly pay set by ops (None = not set yet).
+    monthly_salary_cents: Mapped[int | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship(back_populates="rider_profile")
 

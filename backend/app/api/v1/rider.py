@@ -24,7 +24,6 @@ from app.schemas.delivery import (
     ActiveDeliveryMetaOut,
     BatchOut,
     DeliveryStop,
-    EarningsDetailOut,
     EarningsResponse,
     OfferDetailOut,
     OfferOut,
@@ -41,12 +40,9 @@ from app.schemas.partner import (
     SupportHelpOut,
     SupportTicketOut,
     VerificationStatusOut,
-    WalletOut,
-    WalletTransactionsOut,
-    WalletWithdrawOut,
-    WalletWithdrawRequest,
 )
-from app.schemas.shift import RiderSlotsOut, RiderSlotsUpdate
+from app.schemas.salary import RiderSalaryOut, SalaryInvoiceOut
+from app.schemas.shift import RiderSlotsOut
 from app.schemas.tracking import LocationAccepted, LocationIn
 from app.services import (
     active_delivery_service,
@@ -60,9 +56,9 @@ from app.services import (
     location_service,
     offer_detail_service,
     pricing_service,
+    salary_service,
     shift_service,
     verification_service,
-    wallet_service,
     support_service,
 )
 from app.services.ws_manager import manager
@@ -220,18 +216,6 @@ def my_slots(
     user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
 ) -> RiderSlotsOut:
     """Working slots the rider can pick, with their selection and timing."""
-    return RiderSlotsOut(**shift_service.rider_slots_view(db, user.id))
-
-
-@router.put("/slots", response_model=RiderSlotsOut)
-def set_my_slots(
-    data: RiderSlotsUpdate,
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> RiderSlotsOut:
-    """Replace the rider's (daily recurring) slot selection."""
-    shift_service.set_rider_slots(db, user.id, data.slot_ids)
-    db.commit()
     return RiderSlotsOut(**shift_service.rider_slots_view(db, user.id))
 
 
@@ -430,51 +414,20 @@ def earnings(
     return earnings_service.summary_for_rider(db, user.id)
 
 
-@router.get("/earnings/detail", response_model=EarningsDetailOut)
-def earnings_detail(
-    view: str = "weekly",
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> EarningsDetailOut:
-    if view not in ("weekly", "daily"):
-        raise HTTPException(status_code=400, detail="view must be weekly or daily")
-    return EarningsDetailOut.model_validate(
-        earnings_service.detail_for_rider(db, user.id, view=view)
-    )
+@router.get("/salary", response_model=RiderSalaryOut)
+def my_salary(
+    user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
+) -> RiderSalaryOut:
+    """Monthly salary and approved/paid salary invoices."""
+    return RiderSalaryOut(**salary_service.rider_summary(db, user))
 
 
-@router.get("/wallet", response_model=WalletOut)
-def wallet_details(
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> WalletOut:
-    wallet_service.sync_from_deliveries(db, user.id)
-    db.commit()
-    return WalletOut.model_validate(wallet_service.build_wallet(db, user.id))
+@router.get("/salary/invoices/{invoice_id}", response_model=SalaryInvoiceOut)
+def my_salary_invoice(
+    invoice_id: int, user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
+) -> SalaryInvoiceOut:
+    return SalaryInvoiceOut(**salary_service.rider_invoice(db, user, invoice_id))
 
-
-@router.get("/wallet/transactions", response_model=WalletTransactionsOut)
-def wallet_transactions(
-    filter: str = "all",
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> WalletTransactionsOut:
-    if filter not in ("all", "withdrawals", "earnings", "incentives"):
-        raise HTTPException(status_code=400, detail="Invalid filter")
-    return WalletTransactionsOut.model_validate(
-        wallet_service.list_transactions(db, user.id, filter=filter)
-    )
-
-
-@router.post("/wallet/withdraw", response_model=WalletWithdrawOut)
-def wallet_withdraw(
-    data: WalletWithdrawRequest,
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> WalletWithdrawOut:
-    result = wallet_service.withdraw(db, user.id, data.amount_cents, data.account_id)
-    db.commit()
-    return WalletWithdrawOut(**result)
 
 @router.get("/history", response_model=DeliveryHistoryOut)
 def delivery_history(

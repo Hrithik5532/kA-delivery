@@ -32,11 +32,6 @@ export function ProfileMenuItem({ icon, label, subtitle, onPress, danger, highli
           <Text variant="caption" style={highlighted ? styles.highlightedSubtitle : undefined}>{subtitle}</Text>
         ) : null}
       </View>
-      {highlighted ? (
-        <View style={styles.highlightBadge}>
-          <Text variant="caption" style={styles.highlightBadgeText}>Instant</Text>
-        </View>
-      ) : null}
       <Ionicons name="chevron-forward" size={18} color={highlighted ? colors.primary : colors.textLight} />
     </PressableScale>
   );

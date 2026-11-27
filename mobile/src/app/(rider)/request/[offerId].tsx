@@ -16,7 +16,7 @@ import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
 import { useRiderPosition } from '@/hooks/useRiderPosition';
 import { mergeRouteLegs } from '@/lib/map-route';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
-import { colors, estimateDeliveryMins, money, spacing } from '@/theme';
+import { colors, estimateDeliveryMins, spacing } from '@/theme';
 
 export default function DeliveryRequest() {
   const { offerId } = useLocalSearchParams<{ offerId: string }>();
@@ -116,7 +116,7 @@ export default function DeliveryRequest() {
 
   return (
     <View style={styles.screen}>
-      <FlowScreenHeader title="Delivery Offer" showLogo />
+      <FlowScreenHeader title="New delivery" showLogo />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 160 }]} showsVerticalScrollIndicator={false}>
         {error ? <ErrorState message={error} variant="inline" /> : null}
@@ -124,7 +124,7 @@ export default function DeliveryRequest() {
         <View style={styles.topPills}>
           <View style={styles.dispatchPill}>
             <Ionicons name="flash" size={16} color={colors.primary} />
-            <Text variant="caption" style={styles.dispatchText}>New Instant Dispatch</Text>
+            <Text variant="caption" style={styles.dispatchText}>New delivery</Text>
           </View>
           <View style={styles.timerPill}>
             <Ionicons name="hourglass-outline" size={16} color={colors.tertiary} />
@@ -132,18 +132,11 @@ export default function DeliveryRequest() {
           </View>
         </View>
 
-        <View style={styles.payoutHero}>
-          <View style={styles.payoutGlow} />
-          <Text variant="caption" style={styles.payoutLabel}>GUARANTEED PAYOUT</Text>
-          <Text variant="display" style={styles.payoutAmount}>{money(offer.estimated_earning_cents)}</Text>
-          {offer.is_high_demand && offer.surge_cents > 0 ? (
-            <View style={styles.bonusPill}>
-              <Ionicons name="flame" size={14} color={colors.onPrimary} />
-              <Text variant="caption" style={styles.bonusText}>
-                High Demand Bonus Included (+ {money(offer.surge_cents)})
-              </Text>
-            </View>
-          ) : null}
+        <View>
+          <Text variant="h2">{offer.mess_name ?? 'New delivery'}</Text>
+          <Text variant="bodySmall" style={{ color: colors.textMuted, marginTop: 2 }}>
+            {offer.order_count} order(s) · {itemCount} item(s)
+          </Text>
         </View>
 
         <PartnerCard variant="lowest" style={styles.routeCard}>
@@ -207,11 +200,6 @@ export default function DeliveryRequest() {
             <Text variant="caption" style={styles.attrSub}>Order batch</Text>
           </View>
           <View style={styles.attrChip}>
-            <Ionicons name="flash-outline" size={20} color={colors.secondary} />
-            <Text variant="caption" style={styles.attrTitle}>Express</Text>
-            <Text variant="caption" style={styles.attrSub}>Priority drop</Text>
-          </View>
-          <View style={styles.attrChip}>
             <Ionicons name="hand-left-outline" size={20} color={colors.tertiary} />
             <Text variant="caption" style={styles.attrTitle}>{isPrepaid ? 'Prepaid' : 'COD'}</Text>
             <Text variant="caption" style={styles.attrSub}>{isPrepaid ? 'No cash' : 'Collect cash'}</Text>
@@ -233,12 +221,12 @@ export default function DeliveryRequest() {
         <Pressable style={styles.acceptBtn} onPress={accept} disabled={busy}>
           <Ionicons name="checkmark-circle" size={22} color={colors.onPrimary} />
           <Text variant="button" style={styles.acceptText}>
-            Accept Offer ({money(offer.estimated_earning_cents)})
+            Accept delivery
           </Text>
         </Pressable>
         <Pressable style={styles.declineBtn} onPress={reject} disabled={busy}>
           <Ionicons name="warning" size={18} color={colors.tertiary} />
-          <Text variant="button" style={styles.declineText}>Decline Offer</Text>
+          <Text variant="button" style={styles.declineText}>Decline</Text>
         </Pressable>
       </SafeAreaView>
     </View>
