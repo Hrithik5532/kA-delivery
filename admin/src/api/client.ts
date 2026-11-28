@@ -1,8 +1,12 @@
 /** Typed admin API client. JWT is kept in memory + localStorage. */
 import { config } from '@/config';
+import { recordApiCall } from '@/api/api-log';
 import type {
   ActiveDelivery,
+  AssignOrderPayload,
+  CandidateRider,
   DeliveryIssue,
+  ExternalDeliveryStatus,
   Me,
   Overview,
   OrderDetail,
@@ -13,11 +17,17 @@ import type {
   PartnerDetail,
   PartnerUpdatePayload,
   PartnerListItem,
-  TestDelivery,
+  PartnerApiKey,
+  PartnerApiKeySecret,
+  PartnerLoginCode,
+  RiderSlots,
+  SalaryGenerateResult,
+  SalaryInvoice,
+  SalaryInvoiceUpdate,
+  SalaryList,
+  ShiftSlot,
+  ShiftSlotPayload,
   Token,
-  WithdrawalRequest,
-  WithdrawalSummary,
-  WithdrawalDetail,
 } from '@/api/types';
 
 const TOKEN_KEY = 'digimess.admin.token';
@@ -48,6 +58,16 @@ async function request<T>(
   const { method = 'GET', body, auth = true } = options;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (auth && authToken) headers.Authorization = `Bearer ${authToken}`;
+  const started = performance.now();
+  const log = (fields: { status: number; ok: boolean; responseBody?: unknown; error?: string }) =>
+    recordApiCall({
+      method,
+      path,
+      requestBody: body,
+      durationMs: Math.round(performance.now() - started),
+      timestamp: Date.now(),
+      ...fields,
+    });
   let resp: Response;
   try {
     resp = await fetch(`${config.apiUrl}/api/v1${path}`, {
@@ -56,14 +76,19 @@ async function request<T>(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
+    log({ status: 0, ok: false, error: 'Network error' });
     throw new ApiError(0, 'Network error — is the backend reachable?');
   }
   if (resp.status === 401) {
     setToken(null);
   }
-  if (resp.status === 204) return undefined as T;
+  if (resp.status === 204) {
+    log({ status: 204, ok: true });
+    return undefined as T;
+  }
   const text = await resp.text();
   const data = text ? safeJson(text) : null;
+  log({ status: resp.status, ok: resp.ok, responseBody: data });
   if (!resp.ok) {
     throw new ApiError(resp.status, extractDetail(data) ?? `Request failed (${resp.status})`);
   }
@@ -135,9 +160,17 @@ export const api = {
     request<PartnerDetail>(`/admin/partners/${riderId}/reactivate`, { method: 'POST', body: { reason } }),
 
   // Orders & issues
-  orders: (params: { q?: string; status?: string; is_test?: boolean } = {}) =>
+  orders: (params: { q?: string; status?: string } = {}) =>
     request<Page<OrderSummary>>(`/admin/orders${qs({ ...params, limit: 200 })}`),
   order: (orderId: number) => request<OrderDetail>(`/admin/orders/${orderId}`),
+  orderCandidates: (orderId: number) =>
+    request<CandidateRider[]>(`/admin/orders/${orderId}/candidate-riders`),
+  assignOrder: (orderId: number, body: AssignOrderPayload) =>
+    request<OrderDetail>(`/admin/orders/${orderId}/assign`, { method: 'POST', body }),
+  unassignOrder: (orderId: number) =>
+    request<OrderDetail>(`/admin/orders/${orderId}/unassign`, { method: 'POST' }),
+  setOrderExternalStatus: (orderId: number, status: ExternalDeliveryStatus) =>
+    request<OrderDetail>(`/admin/orders/${orderId}/external-status`, { method: 'POST', body: { status } }),
   issues: (status?: string) => request<Page<DeliveryIssue>>(`/admin/issues${qs({ status, limit: 200 })}`),
   addIssueNote: (issueId: number, note: string) =>
     request<DeliveryIssue>(`/admin/issues/${issueId}/note`, { method: 'POST', body: { note } }),
@@ -145,36 +178,45 @@ export const api = {
     request<DeliveryIssue>(`/admin/issues/${issueId}/resolve`, { method: 'POST' }),
 
   // Operations
-  withdrawalsSummary: () => request<WithdrawalSummary>('/admin/withdrawals/summary'),
-  withdrawal: (id: number) => request<WithdrawalDetail>(`/admin/withdrawals/${id}`),
-  withdrawals: (params: { status?: string; q?: string } = {}) =>
-    request<Page<WithdrawalRequest>>(`/admin/withdrawals${qs({ ...params, limit: 200 })}`),
-  approveWithdrawal: (id: number) => request<WithdrawalRequest>(`/admin/withdrawals/${id}/approve`, { method: 'POST' }),
-  rejectWithdrawal: (id: number, reason: string) =>
-    request<WithdrawalRequest>(`/admin/withdrawals/${id}/reject`, { method: 'POST', body: { reason } }),
-  bulkApproveWithdrawals: (ids: number[]) =>
-    request<{ count: number }>('/admin/withdrawals/bulk-approve', { method: 'POST', body: { ids } }),
+  // Salary invoices
+  salaryInvoices: (params: { period?: string; status?: string } = {}) =>
+    request<SalaryList>(`/admin/salary/invoices${qs(params)}`),
+  salaryInvoice: (id: number) => request<SalaryInvoice>(`/admin/salary/invoices/${id}`),
+  generateSalary: (period: string, riderId?: number) =>
+    request<SalaryGenerateResult>('/admin/salary/invoices/generate', { method: 'POST', body: { period, rider_id: riderId } }),
+  updateSalaryInvoice: (id: number, body: SalaryInvoiceUpdate) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}`, { method: 'PATCH', body }),
+  approveSalaryInvoice: (id: number) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}/approve`, { method: 'POST' }),
+  paySalaryInvoice: (id: number, payment_reference: string) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}/paid`, { method: 'POST', body: { payment_reference } }),
+  cancelSalaryInvoice: (id: number, reason: string) =>
+    request<SalaryInvoice>(`/admin/salary/invoices/${id}/cancel`, { method: 'POST', body: { reason } }),
+  deleteSalaryInvoice: (id: number) =>
+    request<void>(`/admin/salary/invoices/${id}`, { method: 'DELETE' }),
 
-  activeDeliveries: (isTest?: boolean) =>
-    request<ActiveDelivery[]>(`/admin/deliveries/active${qs({ is_test: isTest })}`),
+  activeDeliveries: () => request<ActiveDelivery[]>('/admin/deliveries/active'),
 
-  // Test-order tool
-  testOrders: () => request<Page<TestDelivery>>('/admin/test-orders?limit=200'),
-  placeAutocomplete: (input: string) =>
-    request<Array<{ place_id: string; label: string; secondary?: string | null }>>(
-      '/admin/maps/places/autocomplete',
-      { method: 'POST', body: { input } },
-    ),
-  placeDetails: (placeId: string) =>
-    request<{ lat: number; lng: number; label: string; address: string }>(
-      `/admin/maps/places/${encodeURIComponent(placeId)}`,
-    ),
-  createTestOrder: (body: Record<string, unknown>) =>
-    request<TestDelivery>('/admin/test-orders', { method: 'POST', body }),
-  advanceTestOrder: (orderId: number, to: string) =>
-    request<TestDelivery>(`/admin/test-orders/${orderId}/advance${qs({ to })}`, { method: 'POST' }),
-  assignTestOrder: (orderId: number, riderId: number) =>
-    request<TestDelivery>(`/admin/test-orders/${orderId}/assign`, { method: 'POST', body: { rider_id: riderId } }),
-  cancelTestOrder: (orderId: number) =>
-    request<TestDelivery>(`/admin/test-orders/${orderId}/cancel`, { method: 'POST' }),
+  // Shift slots
+  shiftSlots: () => request<ShiftSlot[]>('/admin/shift-slots'),
+  createShiftSlot: (body: ShiftSlotPayload) =>
+    request<ShiftSlot>('/admin/shift-slots', { method: 'POST', body }),
+  updateShiftSlot: (id: number, body: ShiftSlotPayload) =>
+    request<ShiftSlot>(`/admin/shift-slots/${id}`, { method: 'PATCH', body }),
+  deleteShiftSlot: (id: number) =>
+    request<void>(`/admin/shift-slots/${id}`, { method: 'DELETE' }),
+  partnerLoginCode: (riderId: number) =>
+    request<PartnerLoginCode>(`/admin/partners/${riderId}/login-code`, { method: 'POST' }),
+  partnerSlots: (riderId: number) => request<RiderSlots>(`/admin/partners/${riderId}/slots`),
+  setPartnerSlots: (riderId: number, slotIds: number[]) =>
+    request<RiderSlots>(`/admin/partners/${riderId}/slots`, { method: 'PUT', body: { slot_ids: slotIds } }),
+
+  // Partner API keys (super admin)
+  apiKeys: () => request<PartnerApiKey[]>('/admin/api-keys'),
+  createApiKey: (name: string) =>
+    request<PartnerApiKeySecret>('/admin/api-keys', { method: 'POST', body: { name } }),
+  rotateApiKey: (id: number) =>
+    request<PartnerApiKeySecret>(`/admin/api-keys/${id}/rotate`, { method: 'POST' }),
+  revokeApiKey: (id: number) =>
+    request<PartnerApiKey>(`/admin/api-keys/${id}/revoke`, { method: 'POST' }),
 };

@@ -58,7 +58,7 @@ const DOC_TYPES: {
   { key: 'license', label: 'Driving License', hint: 'Front and back photo', icon: 'card' },
   { key: 'vehicle_rc', label: 'Vehicle RC', hint: 'Registration Certif...', icon: 'document-text' },
   { key: 'id_proof', label: 'Aadhaar / National ID', hint: 'Government-issued photo ID', icon: 'finger-print' },
-  { key: 'bank_passbook', label: 'Bank Passbook / Cheque', hint: 'Required for weekly payouts', icon: 'wallet' },
+  { key: 'bank_passbook', label: 'Bank Passbook / Cheque', hint: 'Required for salary payments', icon: 'wallet' },
 ];
 
 

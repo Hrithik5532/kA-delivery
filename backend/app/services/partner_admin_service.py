@@ -13,10 +13,8 @@ from app.models.enums import ACTIVE_ORDER_STATUSES, DeliveryIssueStatus, Deliver
 from app.models.mess import Mess
 from app.models.order import Order
 from app.models.rider_document import RiderDocument
-from app.models.rider_wallet import RiderWallet
 from app.models.user import RiderProfile, User
-from app.models.wallet_transaction import WalletTransaction
-from app.services import audit_service, tracking_service, wallet_service
+from app.services import audit_service, tracking_service
 
 
 def _months_since(dt: datetime | None) -> int:
@@ -43,24 +41,18 @@ def get_profile(db: Session, rider_id: int, base_detail: dict) -> dict:
     if user is None or profile is None:
         raise HTTPException(status_code=404, detail="Partner not found")
 
-    wallet_data = wallet_service.build_wallet(db, rider_id)
-    wallet_row = db.execute(select(RiderWallet).where(RiderWallet.rider_id == rider_id)).scalar_one_or_none()
-
     docs = db.execute(select(RiderDocument).where(RiderDocument.rider_id == rider_id)).scalars().all()
     deliveries = db.execute(
         select(Delivery).where(Delivery.rider_id == rider_id).order_by(Delivery.id.desc()).limit(50)
     ).scalars().all()
 
     delivery_rows = []
-    total_earned = 0
     cancelled = 0
     for d in deliveries:
         o = db.get(Order, d.order_id)
         mess = db.get(Mess, o.mess_id) if o and o.mess_id else None
         if d.status == DeliveryStatus.cancelled:
             cancelled += 1
-        if d.status == DeliveryStatus.delivered:
-            total_earned += d.earning_cents
         snap = tracking_service.build_snapshot(db, o) if o and o.status in ACTIVE_ORDER_STATUSES else None
         delivery_rows.append({
             "delivery_id": d.id,
@@ -75,25 +67,6 @@ def get_profile(db: Session, rider_id: int, base_detail: dict) -> dict:
             "dropoff_text": o.address_text if o else "",
             "distance_km": snap.distance_km if snap else None,
             "total_cents": o.total_cents if o else 0,
-        })
-
-    txns = db.execute(
-        select(WalletTransaction).where(WalletTransaction.rider_id == rider_id)
-        .order_by(WalletTransaction.created_at.desc()).limit(30)
-    ).scalars().all()
-    running = wallet_row.total_balance_cents if wallet_row else wallet_data["total_balance_cents"]
-    wallet_txns = []
-    for t in txns:
-        wallet_txns.append({
-            "id": t.id,
-            "reference_number": t.reference_number,
-            "txn_type": t.txn_type,
-            "title": t.title,
-            "subtitle": t.subtitle,
-            "amount_cents": t.amount_cents,
-            "status": t.status,
-            "created_at": t.created_at,
-            "balance_after_cents": running,
         })
 
     active_order = None
@@ -130,33 +103,28 @@ def get_profile(db: Session, rider_id: int, base_detail: dict) -> dict:
         doc = doc_map.get(key)
         kyc_items.append({"label": label, "status": doc.status.value if doc else "missing", "ok": doc is not None and doc.status.value == "accepted"})
 
+    from app.services import shift_service
+
+    slots = shift_service.selected_active_slots(db, rider_id)
     return {
         **base_detail,
         "emergency_contact": profile.emergency_contact or "",
         "contact_email": profile.contact_email or user.email,
         "vehicle_fuel_type": profile.vehicle_fuel_type,
-        "shift_preference": "Evening Peak (5 PM – 11 PM)",
-        "max_active_orders": 2,
-        "total_earned_cents": total_earned,
+        "shift_preference": ", ".join(f"{s.name} ({shift_service.format_label(s)})" for s in slots) or None,
         "cancel_rate_pct": cancel_rate,
         "tenure_months": _months_since(user.created_at),
-        "wallet_locked_cents": wallet_data["locked_balance_cents"],
-        "wallet_available_cents": wallet_data["available_balance_cents"],
-        "wallet_total_cents": wallet_data["total_balance_cents"],
         "documents": docs,
         "kyc_items": kyc_items,
-        "wallet_transactions": wallet_txns,
         "active_order": active_order,
         "delivery_history": delivery_rows,
         "recent_deliveries": delivery_rows[:20],
         "open_issues": issues,
         "history": history,
         "admin_notes": admin_notes[:10],
-        "upi_id": profile.upi_id or ("rahul.sharma@okhdfc" if profile.upi_linked and not profile.upi_id else None),
-        "daily_cashout_limit_cents": 5_000_000,
-        "ifsc_code": profile.ifsc_code or ("HDFC0000128" if "HDFC" in (profile.bank_name or "") else "ICIC0005678"),
+        "upi_id": profile.upi_id,
+        "ifsc_code": profile.ifsc_code or "",
     }
-
 
 def update_partner(db: Session, rider_id: int, admin_id: int, data: dict) -> None:
     user = db.get(User, rider_id)
@@ -183,6 +151,10 @@ def update_partner(db: Session, rider_id: int, admin_id: int, data: dict) -> Non
     if data.get("fleet_tier") is not None:
         profile.fleet_tier = data["fleet_tier"].strip()
         changes.append("fleet_tier")
+    if "monthly_salary_cents" in data:
+        value = data["monthly_salary_cents"]
+        profile.monthly_salary_cents = int(value) if value else None
+        changes.append("monthly_salary")
     if data.get("bank_name") is not None:
         profile.bank_name = data["bank_name"].strip()
         changes.append("bank")
@@ -231,3 +203,49 @@ def add_admin_note(db: Session, rider_id: int, admin_id: int, note: str) -> None
         target_type="partner", target_id=rider_id, reason=note.strip(),
     )
     db.commit()
+
+
+def release_unpicked_work(db, rider_id: int) -> list[int]:
+    """Expire a partner's open offers and return accepted-but-not-picked-up
+    deliveries to the dispatch pool. Picked-up deliveries are left in place
+    (the food is with the partner; ops must handle those manually).
+    Returns the affected order ids.
+    """
+    from sqlalchemy import select as _select
+
+    from app.models.base import utcnow
+    from app.models.delivery import Delivery, DeliveryBatch, DeliveryOffer
+    from app.models.enums import DeliveryStatus, OfferStatus
+    from app.services import dispatch_service
+    from app.services.ws_manager import manager
+
+    affected: list[int] = []
+    for off in db.execute(
+        _select(DeliveryOffer).where(
+            DeliveryOffer.rider_id == rider_id, DeliveryOffer.status == OfferStatus.sent
+        )
+    ).scalars():
+        off.status = OfferStatus.expired
+        off.responded_at = utcnow()
+        batch = db.get(DeliveryBatch, off.batch_id)
+        if batch is not None:
+            for d in batch.deliveries:
+                affected.append(d.order_id)
+
+    deliveries = db.execute(
+        _select(Delivery).where(
+            Delivery.rider_id == rider_id,
+            Delivery.status.in_([DeliveryStatus.accepted, DeliveryStatus.en_route_to_mess]),
+        )
+    ).scalars().all()
+    for d in deliveries:
+        old_batch = db.get(DeliveryBatch, d.batch_id)
+        dispatch_service.release_delivery_to_dispatch(db, d)
+        if old_batch is not None:
+            db.refresh(old_batch)
+            dispatch_service.close_empty_batch(db, old_batch)
+        affected.append(d.order_id)
+    db.flush()
+    for order_id in set(affected):
+        manager.publish(order_id)
+    return sorted(set(affected))

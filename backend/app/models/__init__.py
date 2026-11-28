@@ -21,7 +21,10 @@ from app.models.enums import (
 )
 from app.models.mess import Mess, MenuItem
 from app.models.order import Order, OrderItem
+from app.models.partner_api_key import PartnerApiKey
 from app.models.rider_document import RiderDocument
+from app.models.salary import SalaryInvoice
+from app.models.shift import RiderShiftSlot, ShiftSlot
 from app.models.support_ticket import SupportTicket
 from app.models.support_faq import SupportFaq
 from app.models.tracking import AuditEvent, RiderLocation
@@ -43,6 +46,7 @@ __all__ = [
     "MenuItem",
     "Order",
     "OrderItem",
+    "PartnerApiKey",
     "DeliveryBatch",
     "Delivery",
     "DeliveryOffer",
@@ -50,6 +54,9 @@ __all__ = [
     "AuditEvent",
     "RiderDocument",
     "DeliveryIssue",
+    "SalaryInvoice",
+    "ShiftSlot",
+    "RiderShiftSlot",
     "SupportTicket",
     "SupportFaq",
     "LoginOtp",

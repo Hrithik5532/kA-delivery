@@ -15,11 +15,13 @@ class Order(Base, TimestampMixin):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    customer_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    # Partner-registered orders start with only ``external_order_ref``; mess,
+    # customer and drop-off are filled from the external order API at assignment.
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
-    mess_id: Mapped[int] = mapped_column(
-        ForeignKey("messes.id", ondelete="CASCADE"), index=True
+    mess_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messes.id", ondelete="CASCADE"), index=True, nullable=True
     )
 
     status: Mapped[OrderStatus] = mapped_column(
@@ -34,9 +36,10 @@ class Order(Base, TimestampMixin):
 
     # Delivery address snapshot (captured at order time; independent of the
     # mutable saved Address row).
-    address_text: Mapped[str] = mapped_column(String(255))
-    address_lat: Mapped[float] = mapped_column(Float)
-    address_lng: Mapped[float] = mapped_column(Float)
+    address_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The external API may not supply customer coordinates.
+    address_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    address_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     address_title: Mapped[str] = mapped_column(String(128), default="")
     address_subtitle: Mapped[str] = mapped_column(String(255), default="")
@@ -54,6 +57,37 @@ class Order(Base, TimestampMixin):
         sa_enum(PaymentStatus), default=PaymentStatus.pending
     )
     payment_method: Mapped[str] = mapped_column(String(24), default="cod")
+
+    # Origin of the order. Real customer orders come from the booking app; the
+    # legacy value "customer" covers the in-repo checkout flow and test tool.
+    source: Mapped[str] = mapped_column(String(24), default="customer", index=True)
+    # Booking-app order id — makes ingestion idempotent (re-POST returns the same
+    # order instead of duplicating). Null for orders not created via ingestion.
+    external_order_ref: Mapped[str | None] = mapped_column(
+        String(128), unique=True, index=True, nullable=True
+    )
+    # Last ``order_status`` seen from the external order API (e.g. REJECTED).
+    external_order_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    # Fulfillment: an in-platform (KA) rider via the dispatch engine, or an
+    # external courier (Zomato/Swiggy/other) tracked manually by ops.
+    fulfillment_type: Mapped[str] = mapped_column(String(16), default="internal", index=True)
+    external_provider: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    external_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    external_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    external_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    external_assigned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Courier details entered manually by ops when a rider is booked on an
+    # external portal (Porter, Rapido, ...). Surfaced to the ordering platform
+    # through ``/partner/tracking`` so the consumer app shows who is delivering.
+    external_rider_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    external_rider_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_vehicle_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_vehicle_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_tracking_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # Contact captured at order time (booking-app customers are placeholder users).
+    customer_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # OTP delivery proof.
     otp_code: Mapped[str | None] = mapped_column(String(8), nullable=True)

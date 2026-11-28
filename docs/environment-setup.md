@@ -7,7 +7,10 @@ defaults in `app/config.py`; override for anything non-local.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./digimess.db` | SQLAlchemy DB URL. Swap for PostgreSQL in prod. |
+| `DATABASE_HOST` / `DATABASE_PORT` / `DATABASE_NAME` / `DATABASE_USER` / `DATABASE_PASSWORD` | — | PostgreSQL connection (preferred). |
+| `DATABASE_URL` | — | Optional full SQLAlchemy URL instead of component vars. |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@kadelivery.app` / — | First super-admin created when the DB has no users. |
+| `AUTO_SEED_ADMIN_ON_STARTUP` | `true` | Bootstrap admin on empty DB at API startup. |
 | `JWT_SECRET` | `dev-secret-change-me` | JWT signing key. **Set a long random value in prod.** |
 | `JWT_ALGORITHM` | `HS256` | JWT algorithm. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | Access-token lifetime. |
@@ -31,6 +34,11 @@ defaults in `app/config.py`; override for anything non-local.
 | `NOTIFICATION_PROVIDER` | `dev` | `dev` (in-memory/log) or `expo` (real push, needs wiring). |
 | `EXPO_ACCESS_TOKEN` | _(empty)_ | For a real Expo push provider. |
 | `PAYMENT_PROVIDER` | `cod` | `cod` (pay on delivery) or `mock` (instant paid). |
+| `INTEGRATION_API_KEY` | _(empty)_ | Optional static key partners may send as `X-API-Key` to `/api/v1/partner/*`. Prefer keys issued from the admin console (**Settings → Partner API keys**). With neither configured the partner API returns 503. |
+| `EXTERNAL_ORDER_API_URL` | getRiderOrder Prod URL | External API that returns order content (mess, customer, items, totals). |
+| `EXTERNAL_ORDER_API_TIMEOUT_SECONDS` | `8` | Timeout for each external order API call. |
+| `EXTERNAL_ORDER_API_KEY` | _(empty)_ | Credential the external platform issues to us for getRiderOrder. Sent only when set. |
+| `EXTERNAL_ORDER_API_KEY_HEADER` | `x-api-key` | Header carrying that credential. For a bearer token use `Authorization` with the value `Bearer <token>`. |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins. |
 
 ## Mobile (`mobile/.env`)
@@ -113,3 +121,22 @@ once the order is terminal.
 app uses the labeled dev fallback and runs in Expo Go. To use real maps, set the
 provider + key and create a development build (`npx expo run:ios` /
 `npx expo run:android` or EAS).
+
+## Mobile build secrets (EAS)
+
+Never put keys in `mobile/eas.json` — it is committed. Each build profile sets
+`"environment"` (`development` / `preview` / `production`), and EAS injects the
+variables stored for that environment at build time. `app.config.js` reads
+`EXPO_PUBLIC_MAP_API_KEY` from there.
+
+```bash
+cd mobile
+eas env:create --environment production  --name EXPO_PUBLIC_MAP_API_KEY --value <key> --visibility sensitive
+eas env:create --environment preview     --name EXPO_PUBLIC_MAP_API_KEY --value <key> --visibility sensitive
+eas env:create --environment development --name EXPO_PUBLIC_MAP_API_KEY --value <key> --visibility sensitive
+```
+
+`EXPO_PUBLIC_*` values are compiled into the app, so a Maps key is always
+readable from the installed APK/IPA. Protect it in Google Cloud Console by
+restricting it to the Android package + signing SHA-1 and the iOS bundle id, and
+to the Maps APIs only.

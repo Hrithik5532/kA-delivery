@@ -1,6 +1,6 @@
-"""Admin dashboard API: verification, partners, operations, orders, and the
-admin-only test-order tool. All endpoints require an authenticated admin and are
-further gated by admin permission tier (see ``api/deps``).
+"""Admin dashboard API: verification, partners, operations, and orders. All
+endpoints require an authenticated admin and are further gated by admin
+permission tier (see ``api/deps``).
 """
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin_permission
@@ -32,11 +32,14 @@ from app.models.mess import Mess
 from app.models.order import Order
 from app.schemas.maps import PlaceAutocompleteIn, PlaceDetailsOut, PlaceSuggestionOut
 from app.schemas.admin import (
+    PartnerLoginCodeOut,
     FleetLeaderOut,
     ActiveDeliveryOut,
     AdminDeliveryRow,
-    AssignRequest,
+    AssignOrderRequest,
     AuditEventOut,
+    CandidateRiderOut,
+    ExternalStatusRequest,
     NoteRequest,
     OrderDetailOut,
     OrderSummaryOut,
@@ -50,24 +53,17 @@ from app.schemas.admin import (
     PartnerListItem,
     ReasonRequest,
     RiderMarkerOut,
-    TestDeliveryCreate,
-    TestDeliveryOut,
-    WithdrawalRequestOut,
-    WithdrawalSummaryOut,
-    WithdrawalDetailOut,
-    BulkWithdrawalApproveRequest,
 )
 from app.schemas.partner import DeliveryIssueOut, RiderDocumentOut
 from app.services import (
     audit_service,
     location_service,
     maps_service,
-    wallet_service,
+    order_admin_service,
+    presence_service,
     document_service,
-    test_order_service,
     tracking_service,
     verification_service,
-    withdrawal_admin_service,
     partner_admin_service,
 )
 
@@ -80,6 +76,8 @@ _ops = require_admin_permission(AdminRole.operations)
 _any_admin = require_admin_permission(
     AdminRole.partner_verification, AdminRole.operations, AdminRole.support
 )
+# Changing a partner's account (profile/bank, suspend) — not the support tier.
+_partner_write = require_admin_permission(AdminRole.partner_verification, AdminRole.operations)
 
 
 # --- Partner verification -------------------------------------------------
@@ -217,99 +215,27 @@ def request_correction(
 
 
 @router.post("/maps/places/autocomplete", response_model=list[PlaceSuggestionOut])
-def places_autocomplete(
+async def places_autocomplete(
     data: PlaceAutocompleteIn,
     _: User = Depends(_ops),
 ) -> list[PlaceSuggestionOut]:
     """Proxy Google Places autocomplete through the backend (avoids browser referrer restrictions)."""
     try:
-        rows = maps_service.search_places(data.input)
+        rows = await maps_service.search_places(data.input)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return [PlaceSuggestionOut(place_id=r["place_id"], label=r["label"], secondary=r.get("secondary")) for r in rows]
 
 
 @router.get("/maps/places/{place_id}", response_model=PlaceDetailsOut)
-def places_details(
+async def places_details(
     place_id: str,
     _: User = Depends(_ops),
 ) -> PlaceDetailsOut:
-    details = maps_service.get_place_details(place_id)
+    details = await maps_service.get_place_details(place_id)
     if details is None:
         raise HTTPException(status_code=502, detail="Could not load place details")
     return PlaceDetailsOut(**details)
-
-
-# --- Admin-only test-order tool ------------------------------------------
-
-@router.post("/test-orders", response_model=TestDeliveryOut, status_code=201)
-def create_test_order(
-    data: TestDeliveryCreate,
-    admin: User = Depends(_ops),
-    db: Session = Depends(get_db),
-) -> TestDeliveryOut:
-    """Create a clearly-marked TEST delivery. Appears in the backend as a normal
-    (unassigned) delivery and flows through the real dispatch/tracking pipeline.
-    """
-    order = test_order_service.create_test_delivery(db, admin, data)
-    return test_order_service.to_out(db, order)
-
-
-@router.get("/test-orders", response_model=Page[TestDeliveryOut])
-def list_test_orders(
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    _: User = Depends(_ops),
-    db: Session = Depends(get_db),
-) -> Page[TestDeliveryOut]:
-    total = db.execute(
-        select(func.count(Order.id)).where(Order.is_test.is_(True))
-    ).scalar_one()
-    orders = db.execute(
-        select(Order)
-        .where(Order.is_test.is_(True))
-        .order_by(Order.id.desc())
-        .limit(limit)
-        .offset(offset)
-    ).scalars().all()
-    return Page(
-        items=[test_order_service.to_out(db, o) for o in orders],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
-
-
-@router.post("/test-orders/{order_id}/advance", response_model=TestDeliveryOut)
-def advance_test_order(
-    order_id: int,
-    to: str = Query(..., description="accept | prepare | ready"),
-    admin: User = Depends(_ops),
-    db: Session = Depends(get_db),
-) -> TestDeliveryOut:
-    order = test_order_service.advance(db, order_id, admin, to)
-    return test_order_service.to_out(db, order)
-
-
-@router.post("/test-orders/{order_id}/assign", response_model=TestDeliveryOut)
-def assign_test_order(
-    order_id: int,
-    data: AssignRequest,
-    admin: User = Depends(_ops),
-    db: Session = Depends(get_db),
-) -> TestDeliveryOut:
-    order = test_order_service.assign_to_rider(db, order_id, admin, data.rider_id)
-    return test_order_service.to_out(db, order)
-
-
-@router.post("/test-orders/{order_id}/cancel", response_model=TestDeliveryOut)
-def cancel_test_order(
-    order_id: int,
-    admin: User = Depends(_ops),
-    db: Session = Depends(get_db),
-) -> TestDeliveryOut:
-    order = test_order_service.cancel(db, order_id, admin)
-    return test_order_service.to_out(db, order)
 
 
 # --- Overview -------------------------------------------------------------
@@ -320,6 +246,9 @@ def _issue_out(issue: DeliveryIssue) -> DeliveryIssueOut:
 
 @router.get("/overview", response_model=OverviewOut)
 def overview(_: User = Depends(_any_admin), db: Session = Depends(get_db)) -> OverviewOut:
+    # Take force-closed apps offline so the online count reflects reality.
+    presence_service.sweep_stale_online(db)
+
     def count(stmt) -> int:
         return db.execute(stmt).scalar_one()
 
@@ -421,7 +350,6 @@ def overview(_: User = Depends(_any_admin), db: Session = Depends(get_db)) -> Ov
             live_kitchen=live_kitchen,
             live_picked_up=live_picked_up,
             live_en_route=live_en_route,
-            platform_revenue_cents=int((gmv_today or 0) * 0.12),
         ),
         recent_applications=[_application_out(db, p) for p in recent_profiles],
         recent_issues=[_issue_out(i) for i in recent_issues],
@@ -449,20 +377,6 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
             Delivery.status == DeliveryStatus.delivered,
         )
     ).scalar_one()
-    week_start = datetime.now(timezone.utc) - timedelta(days=7)
-    week_earnings = db.execute(
-        select(func.coalesce(func.sum(Delivery.earning_cents), 0)).where(
-            Delivery.rider_id == profile.user_id,
-            Delivery.status == DeliveryStatus.delivered,
-            Delivery.delivered_at >= week_start,
-        )
-    ).scalar_one()
-    payout_pending = db.execute(
-        select(func.count(Delivery.id)).where(
-            Delivery.rider_id == profile.user_id,
-            Delivery.payout_status == PayoutStatus.pending,
-        )
-    ).scalar_one() > 0
     active_order = db.execute(
         select(Order.id)
         .join(Delivery, Delivery.order_id == Order.id)
@@ -473,7 +387,6 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
         .order_by(Order.id.desc())
         .limit(1)
     ).scalar_one_or_none()
-    wallet = wallet_service.build_wallet(db, profile.user_id)
     latest = location_service.latest_location(db, profile.user_id)
     return PartnerListItem(
         rider_id=profile.user_id,
@@ -487,19 +400,18 @@ def _partner_list_item(db: Session, profile: RiderProfile) -> PartnerListItem:
         current_batch_id=_current_batch_id(db, profile.user_id),
         total_deliveries=total,
         partner_code=profile.partner_code,
-        rating=round(float(profile.rating or 5.0), 2),
+        rating=round(float(profile.rating), 2) if profile.rating is not None else None,
         vehicle_type=profile.vehicle_type,
         vehicle_model=profile.vehicle_model or profile.vehicle_type.title(),
         vehicle_number=profile.vehicle_number,
         operating_hub=profile.operating_hub,
-        wallet_balance_cents=int(wallet["available_balance_cents"]),
-        week_earnings_cents=int(week_earnings or 0),
-        payout_pending=bool(payout_pending),
+        monthly_salary_cents=profile.monthly_salary_cents,
         active_order_id=active_order,
         last_lat=profile.last_lat,
         last_lng=profile.last_lng,
         location_updated_at=latest.server_timestamp if latest else None,
         location_is_stale=location_service.is_stale(latest) if latest else True,
+        last_seen_at=presence_service.last_seen_at(db, profile),
     )
 
 
@@ -513,6 +425,8 @@ def list_partners(
     _: User = Depends(_any_admin),
     db: Session = Depends(get_db),
 ) -> Page[PartnerListItem]:
+    # Reconcile genuine presence before listing/filtering by online status.
+    presence_service.sweep_stale_online(db)
     stmt = select(RiderProfile).join(User, User.id == RiderProfile.user_id)
     count_stmt = select(func.count(RiderProfile.id)).join(
         User, User.id == RiderProfile.user_id
@@ -568,7 +482,7 @@ def partner_detail(
 
 @router.patch("/partners/{rider_id}", response_model=PartnerDetail)
 def update_partner_profile(
-    rider_id: int, data: PartnerUpdateRequest, admin: User = Depends(_any_admin), db: Session = Depends(get_db),
+    rider_id: int, data: PartnerUpdateRequest, admin: User = Depends(_partner_write), db: Session = Depends(get_db),
 ) -> PartnerDetail:
     partner_admin_service.update_partner(db, rider_id, admin.id, data.model_dump(exclude_unset=True))
     return partner_detail(rider_id, admin, db)
@@ -582,9 +496,43 @@ def add_partner_note(
     return partner_detail(rider_id, admin, db)
 
 
+@router.post("/partners/{rider_id}/login-code", response_model=PartnerLoginCodeOut)
+def create_partner_login_code(
+    rider_id: int, admin: User = Depends(_partner_write), db: Session = Depends(get_db),
+) -> PartnerLoginCodeOut:
+    """Generate a one-time app login code for a partner (no SMS gateway yet).
+
+    Ops read it out / send it on WhatsApp; the partner enters their phone and
+    this code on the app's OTP screen. The code itself is never audited.
+    """
+    from app.config import settings
+    from app.services.auth_service import AuthError, issue_admin_login_code
+
+    user = db.get(User, rider_id)
+    if user is None or user.rider_profile is None:
+        raise HTTPException(status_code=404, detail="Partner not found")
+    if not user.is_active:
+        raise HTTPException(status_code=409, detail="Partner is suspended; reactivate them first")
+    try:
+        code, expires_at = issue_admin_login_code(db, user)
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    audit_service.record(
+        db, actor_user_id=admin.id, action="partner_login_code_issued",
+        target_type="partner", target_id=rider_id,
+    )
+    db.commit()
+    return PartnerLoginCodeOut(
+        code=code,
+        phone=user.phone or "",
+        expires_at=expires_at,
+        valid_minutes=settings.admin_login_code_expiry_minutes,
+    )
+
+
 @router.post("/partners/{rider_id}/suspend", response_model=PartnerDetail)
 def suspend_partner(
-    rider_id: int, data: ReasonRequest, admin: User = Depends(_any_admin),
+    rider_id: int, data: ReasonRequest, admin: User = Depends(_partner_write),
     db: Session = Depends(get_db),
 ) -> PartnerDetail:
     user = db.get(User, rider_id)
@@ -594,9 +542,13 @@ def suspend_partner(
     user.suspended_reason = data.reason.strip()
     if user.rider_profile:
         user.rider_profile.is_online = False
+    # Hand back anything not yet picked up so customers are not left waiting
+    # on a partner who can no longer log in.
+    released = partner_admin_service.release_unpicked_work(db, rider_id)
     audit_service.record(
         db, actor_user_id=admin.id, action="partner_suspended",
         target_type="partner", target_id=rider_id, reason=data.reason.strip(),
+        detail=f"released_orders={released}" if released else None,
     )
     db.commit()
     return partner_detail(rider_id, admin, db)
@@ -604,7 +556,7 @@ def suspend_partner(
 
 @router.post("/partners/{rider_id}/reactivate", response_model=PartnerDetail)
 def reactivate_partner(
-    rider_id: int, data: ReasonRequest, admin: User = Depends(_any_admin),
+    rider_id: int, data: ReasonRequest, admin: User = Depends(_partner_write),
     db: Session = Depends(get_db),
 ) -> PartnerDetail:
     user = db.get(User, rider_id)
@@ -623,27 +575,30 @@ def reactivate_partner(
 # --- Orders & issues ------------------------------------------------------
 
 def _order_summary(db: Session, order: Order) -> OrderSummaryOut:
-    mess = db.get(Mess, order.mess_id)
-    customer = db.get(User, order.customer_id)
+    mess = db.get(Mess, order.mess_id) if order.mess_id is not None else None
+    customer = db.get(User, order.customer_id) if order.customer_id is not None else None
     delivery = db.execute(
         select(Delivery).where(Delivery.order_id == order.id)
     ).scalar_one_or_none()
     rider = db.get(User, delivery.rider_id) if delivery and delivery.rider_id else None
     return OrderSummaryOut(
-        order_id=order.id, is_test=order.is_test, status=order.status.value,
+        order_id=order.id, external_order_ref=order.external_order_ref,
+        external_order_status=order.external_order_status,
+        is_test=order.is_test, status=order.status.value,
         mess_name=mess.name if mess else None,
         customer_name=customer.full_name if customer else None,
         rider_name=rider.full_name if rider else None,
         delivery_status=delivery.status.value if delivery else None,
         total_cents=order.total_cents, created_at=order.created_at,
+        fulfillment_type=order.fulfillment_type,
+        external_provider=order.external_provider,
     )
 
 
 @router.get("/orders", response_model=Page[OrderSummaryOut])
 def list_orders(
-    q: str | None = Query(default=None, description="order id or partner name"),
+    q: str | None = Query(default=None, description="order id or external order id (ORD-…)"),
     status: OrderStatus | None = None,
-    is_test: bool | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     _: User = Depends(_any_admin),
@@ -654,12 +609,12 @@ def list_orders(
     if status is not None:
         stmt = stmt.where(Order.status == status)
         count_stmt = count_stmt.where(Order.status == status)
-    if is_test is not None:
-        stmt = stmt.where(Order.is_test.is_(is_test))
-        count_stmt = count_stmt.where(Order.is_test.is_(is_test))
-    if q and q.strip().isdigit():
-        stmt = stmt.where(Order.id == int(q.strip()))
-        count_stmt = count_stmt.where(Order.id == int(q.strip()))
+    term = (q or "").strip()
+    if term:
+        ref_match = Order.external_order_ref.ilike(f"%{term}%")
+        cond = or_(Order.id == int(term), ref_match) if term.isdigit() else ref_match
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
     total = db.execute(count_stmt).scalar_one()
     orders = db.execute(
         stmt.order_by(Order.id.desc()).limit(limit).offset(offset)
@@ -670,6 +625,17 @@ def list_orders(
     )
 
 
+def _order_detail_out(db: Session, order: Order) -> OrderDetailOut:
+    payload = order_admin_service.build_order_detail(db, order)
+    payload["timeline"] = [AuditEventOut.model_validate(e) for e in payload["timeline"]]
+    issues = db.execute(
+        select(DeliveryIssue).where(DeliveryIssue.order_id == order.id)
+        .order_by(DeliveryIssue.id.desc())
+    ).scalars().all()
+    payload["issues"] = [_issue_out(i) for i in issues]
+    return OrderDetailOut.model_validate(payload)
+
+
 @router.get("/orders/{order_id}", response_model=OrderDetailOut)
 def order_detail(
     order_id: int, _: User = Depends(_any_admin), db: Session = Depends(get_db)
@@ -677,18 +643,76 @@ def order_detail(
     order = db.get(Order, order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
-    summary = _order_summary(db, order)
-    timeline = audit_service.for_order(db, order_id)
-    issues = db.execute(
-        select(DeliveryIssue).where(DeliveryIssue.order_id == order_id)
-        .order_by(DeliveryIssue.id.desc())
-    ).scalars().all()
-    return OrderDetailOut(
-        **summary.model_dump(),
-        dropoff_text=order.address_text,
-        timeline=[AuditEventOut.model_validate(e) for e in timeline],
-        issues=[_issue_out(i) for i in issues],
-    )
+    return _order_detail_out(db, order)
+
+
+@router.get("/orders/{order_id}/candidate-riders", response_model=list[CandidateRiderOut])
+def order_candidate_riders(
+    order_id: int, _: User = Depends(_ops), db: Session = Depends(get_db)
+) -> list[CandidateRiderOut]:
+    """Approved, online riders ranked nearest-first to the order's mess."""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return [CandidateRiderOut(**c) for c in order_admin_service.candidate_riders(db, order)]
+
+
+@router.post("/orders/{order_id}/assign", response_model=OrderDetailOut)
+def assign_order(
+    order_id: int,
+    data: AssignOrderRequest,
+    admin: User = Depends(_ops),
+    db: Session = Depends(get_db),
+) -> OrderDetailOut:
+    """Assign delivery: a KA partner (offer) or an external platform (record)."""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if data.mode == "internal":
+        if data.rider_id is None:
+            raise HTTPException(status_code=400, detail="rider_id is required")
+        order = order_admin_service.assign_internal(db, order, admin, data.rider_id)
+    else:
+        if not data.provider:
+            raise HTTPException(status_code=400, detail="provider is required")
+        order = order_admin_service.assign_external(
+            db,
+            order,
+            admin,
+            data.provider,
+            data.reference,
+            data.note,
+            rider=data.model_dump(include=set(order_admin_service.EXTERNAL_RIDER_FIELDS)),
+        )
+    return _order_detail_out(db, order)
+
+
+@router.post("/orders/{order_id}/unassign", response_model=OrderDetailOut)
+def cancel_order_assignment(
+    order_id: int,
+    admin: User = Depends(_ops),
+    db: Session = Depends(get_db),
+) -> OrderDetailOut:
+    """Cancel the KA partner offer/assignment and reopen the order for reassignment."""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order = order_admin_service.cancel_internal_assignment(db, order, admin)
+    return _order_detail_out(db, order)
+
+
+@router.post("/orders/{order_id}/external-status", response_model=OrderDetailOut)
+def set_order_external_status(
+    order_id: int,
+    data: ExternalStatusRequest,
+    admin: User = Depends(_ops),
+    db: Session = Depends(get_db),
+) -> OrderDetailOut:
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order = order_admin_service.update_external_status(db, order, admin, data.status)
+    return _order_detail_out(db, order)
 
 
 @router.get("/issues", response_model=Page[DeliveryIssueOut])
@@ -813,42 +837,3 @@ def order_tracking(
         raise HTTPException(status_code=403, detail="Not authorized")
     return tracking_service.build_snapshot(db, order)
 
-# --- Withdrawal requests --------------------------------------------------
-
-@router.get("/withdrawals/summary", response_model=WithdrawalSummaryOut)
-def withdrawals_summary(_: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalSummaryOut:
-    return WithdrawalSummaryOut.model_validate(withdrawal_admin_service.summary(db))
-
-
-@router.get("/withdrawals", response_model=Page[WithdrawalRequestOut])
-def list_withdrawals(
-    status: str | None = Query(default=None, description="all|pending_review|approved|rejected"),
-    q: str | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    _: User = Depends(_any_admin),
-    db: Session = Depends(get_db),
-) -> Page[WithdrawalRequestOut]:
-    items, total = withdrawal_admin_service.list_requests(db, status=status, q=q, limit=limit, offset=offset)
-    return Page(items=[WithdrawalRequestOut.model_validate(i) for i in items], total=total, limit=limit, offset=offset)
-
-
-
-
-@router.get("/withdrawals/{txn_id}", response_model=WithdrawalDetailOut)
-def withdrawal_detail(txn_id: int, _: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalDetailOut:
-    return WithdrawalDetailOut.model_validate(withdrawal_admin_service.get_detail(db, txn_id))
-
-@router.post("/withdrawals/{txn_id}/approve", response_model=WithdrawalRequestOut)
-def approve_withdrawal(txn_id: int, admin: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
-    return WithdrawalRequestOut.model_validate(withdrawal_admin_service.approve(db, txn_id, admin.id))
-
-
-@router.post("/withdrawals/{txn_id}/reject", response_model=WithdrawalRequestOut)
-def reject_withdrawal(txn_id: int, data: ReasonRequest, admin: User = Depends(_any_admin), db: Session = Depends(get_db)) -> WithdrawalRequestOut:
-    return WithdrawalRequestOut.model_validate(withdrawal_admin_service.reject(db, txn_id, admin.id, data.reason))
-
-
-@router.post("/withdrawals/bulk-approve")
-def bulk_approve_withdrawals(data: BulkWithdrawalApproveRequest, admin: User = Depends(_any_admin), db: Session = Depends(get_db)):
-    return withdrawal_admin_service.bulk_approve(db, data.ids, admin.id)

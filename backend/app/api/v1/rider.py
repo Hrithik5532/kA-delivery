@@ -24,17 +24,10 @@ from app.schemas.delivery import (
     ActiveDeliveryMetaOut,
     BatchOut,
     DeliveryStop,
-    EarningsDetailOut,
     EarningsResponse,
-    CashoutResultOut,
-    HotspotOut,
-    IncentiveQuestOut,
     OfferDetailOut,
     OfferOut,
     RiderDashboardOut,
-    DashboardQuestOut,
-    LastCompletedOut,
-    SurgeHotspotOut,
     RiderOrderItemOut,
 )
 from app.schemas.partner import (
@@ -47,11 +40,9 @@ from app.schemas.partner import (
     SupportHelpOut,
     SupportTicketOut,
     VerificationStatusOut,
-    WalletOut,
-    WalletTransactionsOut,
-    WalletWithdrawOut,
-    WalletWithdrawRequest,
 )
+from app.schemas.salary import RiderSalaryOut, SalaryInvoiceOut
+from app.schemas.shift import RiderSlotsOut
 from app.schemas.tracking import LocationAccepted, LocationIn
 from app.services import (
     active_delivery_service,
@@ -63,11 +54,11 @@ from app.services import (
     earnings_service,
     history_service,
     location_service,
-    prep_service,
     offer_detail_service,
     pricing_service,
+    salary_service,
+    shift_service,
     verification_service,
-    wallet_service,
     support_service,
 )
 from app.services.ws_manager import manager
@@ -98,7 +89,7 @@ def _verification_out(db: Session, user: User) -> VerificationStatusOut:
         headline = "Application Under Review"
         subtitle = (
             "Your documents have been submitted and are currently being reviewed by the "
-            "Digi Mess compliance team. Typical review time is 2-4 hours."
+            "Khana Delivery compliance team. Typical review time is 2-4 hours."
         )
     elif docs:
         steps_completed = 1
@@ -200,6 +191,11 @@ def _active_batch(db: Session, rider_id: int) -> DeliveryBatch | None:
 
 @router.post("/online", status_code=204)
 def go_online(user: User = Depends(require_approved_rider), db: Session = Depends(get_db)):
+    # Shift slots: a rider can only be online inside a selected slot.
+    shift_service.ensure_can_go_online(db, user.id)
+    window = shift_service.rider_current_window(db, user.id)
+    if window is not None and user.rider_profile is not None:
+        user.rider_profile.shift_auto_online_key = window.key
     auth_service.set_rider_online(db, user, True)
     dispatch_service.repair_assigned_batches(db)
     dispatch_service.retry_pending_dispatches(db)
@@ -213,6 +209,14 @@ def go_offline(user: User = Depends(require_rider), db: Session = Depends(get_db
             status_code=409, detail="Finish your active delivery before going offline"
         )
     auth_service.set_rider_online(db, user, False)
+
+
+@router.get("/slots", response_model=RiderSlotsOut)
+def my_slots(
+    user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
+) -> RiderSlotsOut:
+    """Working slots the rider can pick, with their selection and timing."""
+    return RiderSlotsOut(**shift_service.rider_slots_view(db, user.id))
 
 
 @router.get("/offers", response_model=list[OfferOut])
@@ -234,7 +238,7 @@ def my_offers(
         deliveries = batch.deliveries
         orders = [db.get(Order, d.order_id) for d in deliveries]
         orders = [o for o in orders if o is not None]
-        earnings = pricing_service.offer_earnings(orders, len(deliveries))
+        earnings = pricing_service.offer_earnings(orders, mess)
         stops = _build_stops(db, batch)
         out.append(
             OfferOut(
@@ -249,9 +253,7 @@ def my_offers(
                 order_count=len(deliveries),
                 base_earning_cents=earnings["base_earning_cents"],
                 surge_cents=earnings["surge_cents"],
-                incentive_cents=earnings["incentive_cents"],
                 estimated_earning_cents=earnings["estimated_earning_cents"],
-                is_high_demand=len(deliveries) >= 2 or earnings["surge_cents"] > 0,
                 stops=stops,
             )
         )
@@ -276,9 +278,14 @@ def offer_detail(
     deliveries = batch.deliveries
     orders = [db.get(Order, d.order_id) for d in deliveries]
     orders = [o for o in orders if o is not None]
-    earnings = pricing_service.offer_earnings(orders, len(deliveries))
+    earnings = pricing_service.offer_earnings(orders, mess)
     stops = _build_stops(db, batch)
-    data = offer_detail_service.build_offer_detail(offer, batch, mess, orders, stops, earnings)
+    profile = user.rider_profile
+    data = offer_detail_service.build_offer_detail(
+        offer, batch, mess, orders, stops, earnings,
+        rider_lat=profile.last_lat if profile else None,
+        rider_lng=profile.last_lng if profile else None,
+    )
     return OfferDetailOut.model_validate(data)
 
 @router.get("/active", response_model=BatchOut | None)
@@ -320,7 +327,6 @@ def _build_stops(db: Session, batch: DeliveryBatch) -> list[DeliveryStop]:
                     )
                     for item in order.items
                 ],
-                prep_ready_in_minutes=prep_service.prep_ready_in_minutes(order),
                 **extra,
             )
         )
@@ -408,62 +414,20 @@ def earnings(
     return earnings_service.summary_for_rider(db, user.id)
 
 
-@router.get("/earnings/detail", response_model=EarningsDetailOut)
-def earnings_detail(
-    view: str = "weekly",
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> EarningsDetailOut:
-    if view not in ("weekly", "daily"):
-        raise HTTPException(status_code=400, detail="view must be weekly or daily")
-    return EarningsDetailOut.model_validate(
-        earnings_service.detail_for_rider(db, user.id, view=view)
-    )
+@router.get("/salary", response_model=RiderSalaryOut)
+def my_salary(
+    user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
+) -> RiderSalaryOut:
+    """Monthly salary and approved/paid salary invoices."""
+    return RiderSalaryOut(**salary_service.rider_summary(db, user))
 
 
-@router.post("/earnings/cashout", response_model=CashoutResultOut)
-def earnings_cashout(
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> CashoutResultOut:
-    result = earnings_service.instant_cashout(db, user.id)
-    return CashoutResultOut(**result)
+@router.get("/salary/invoices/{invoice_id}", response_model=SalaryInvoiceOut)
+def my_salary_invoice(
+    invoice_id: int, user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
+) -> SalaryInvoiceOut:
+    return SalaryInvoiceOut(**salary_service.rider_invoice(db, user, invoice_id))
 
-
-
-
-@router.get("/wallet", response_model=WalletOut)
-def wallet_details(
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> WalletOut:
-    wallet_service.sync_from_deliveries(db, user.id)
-    db.commit()
-    return WalletOut.model_validate(wallet_service.build_wallet(db, user.id))
-
-
-@router.get("/wallet/transactions", response_model=WalletTransactionsOut)
-def wallet_transactions(
-    filter: str = "all",
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> WalletTransactionsOut:
-    if filter not in ("all", "withdrawals", "earnings", "incentives"):
-        raise HTTPException(status_code=400, detail="Invalid filter")
-    return WalletTransactionsOut.model_validate(
-        wallet_service.list_transactions(db, user.id, filter=filter)
-    )
-
-
-@router.post("/wallet/withdraw", response_model=WalletWithdrawOut)
-def wallet_withdraw(
-    data: WalletWithdrawRequest,
-    user: User = Depends(require_approved_rider),
-    db: Session = Depends(get_db),
-) -> WalletWithdrawOut:
-    result = wallet_service.withdraw(db, user.id, data.amount_cents, data.account_id)
-    db.commit()
-    return WalletWithdrawOut(**result)
 
 @router.get("/history", response_model=DeliveryHistoryOut)
 def delivery_history(
@@ -537,21 +501,13 @@ def update_rider_profile(
 def rider_dashboard(
     user: User = Depends(require_approved_rider), db: Session = Depends(get_db)
 ) -> RiderDashboardOut:
-    data = dashboard_service.build_dashboard(db, user.id)
-    return RiderDashboardOut(
-        hotspots=[HotspotOut(**h) for h in data["hotspots"]],
-        incentive_quest=IncentiveQuestOut(**data["incentive_quest"]),
-        today_deliveries=data["today_deliveries"],
-        today_earnings_cents=data["today_earnings_cents"],
-    )
+    return RiderDashboardOut.model_validate(dashboard_service.build_dashboard(db, user.id))
 
 
 @router.get("/support", response_model=SupportHelpOut)
 def support_help(
     user: User = Depends(require_rider), db: Session = Depends(get_db)
 ) -> SupportHelpOut:
-    support_service.seed_faqs(db)
-    db.commit()
     return SupportHelpOut(**support_service.build_help_page(db, user))
 
 

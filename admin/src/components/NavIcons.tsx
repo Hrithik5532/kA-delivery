@@ -83,18 +83,6 @@ export function IconWithdrawals(props: IconProps) {
   );
 }
 
-export function IconTestOrders(props: IconProps) {
-  return (
-    <Base {...props}>
-      <path d="M10 2v4" />
-      <path d="M14 2v4" />
-      <rect x="5" y="6" width="14" height="14" rx="2" />
-      <path d="M9 12h6" />
-      <path d="M12 9v6" />
-    </Base>
-  );
-}
-
 export function IconReports(props: IconProps) {
   return (
     <Base {...props}>
@@ -103,6 +91,15 @@ export function IconReports(props: IconProps) {
       <path d="M8 15v-4" />
       <path d="M12 15V9" />
       <path d="M16 15v-2" />
+    </Base>
+  );
+}
+
+export function IconShifts(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
     </Base>
   );
 }

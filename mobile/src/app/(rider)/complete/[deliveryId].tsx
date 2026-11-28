@@ -5,63 +5,16 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, ApiError } from '@/api/client';
-import type { Batch, DeliveryCompletion, DeliveryHandover, DeliveryStop } from '@/api/types';
+import type { Batch, DeliveryCompletion, DeliveryHandover } from '@/api/types';
 import { ErrorState } from '@/components/ErrorState';
 import { useFeedback } from '@/components/FeedbackProvider';
 import { Loading } from '@/components/Loading';
-import { OtpInput, PartnerCard } from '@/components/partner';
+import { PartnerCard } from '@/components/partner';
 import { Button } from '@/components/ui/Button';
 import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
 import { Text } from '@/components/ui/Text';
-import { config } from '@/config';
-import { colors, money, spacing } from '@/theme';
-
-function PayoutLine({
-  icon,
-  iconColor,
-  iconBg,
-  title,
-  subtitle,
-  amount,
-  badge,
-  badgeTone,
-  highlight,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconBg: string;
-  title: string;
-  subtitle: string;
-  amount: string;
-  badge?: string;
-  badgeTone?: 'surge' | 'tip';
-  highlight?: boolean;
-}) {
-  return (
-    <View style={[styles.payoutLine, highlight && styles.payoutLineHighlight]}>
-      <View style={[styles.payoutLineIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.payoutLineTitleRow}>
-          <Text variant="label">{title}</Text>
-          {badge ? (
-            <View style={[styles.lineBadge, badgeTone === 'surge' ? styles.surgeBadge : styles.tipBadge]}>
-              <Text variant="caption" style={badgeTone === 'surge' ? styles.surgeBadgeText : styles.tipBadgeText}>
-                {badge}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        <Text variant="caption" style={{ color: colors.textMuted }}>{subtitle}</Text>
-      </View>
-      <Text variant="label" style={[styles.payoutAmount, badgeTone === 'tip' && { color: colors.secondary }]}>
-        {amount}
-      </Text>
-    </View>
-  );
-}
+import { colors, spacing } from '@/theme';
 
 function SuccessScreen({
   data,
@@ -74,7 +27,6 @@ function SuccessScreen({
   onContinue: () => void;
   onIssue: () => void;
 }) {
-  const payout = data.payout;
   const tabBarHeight = useTabBarHeight();
   return (
     <View style={styles.screen}>
@@ -101,20 +53,6 @@ function SuccessScreen({
           {data.ticket_ref} delivered successfully
         </Text>
 
-        <PartnerCard variant="lowest" style={styles.earnedCard}>
-          <View style={styles.earnedHeader}>
-            <Ionicons name="wallet" size={20} color={colors.secondary} />
-            <Text variant="label" style={{ color: colors.textMuted }}>Earned This Trip</Text>
-          </View>
-          <Text variant="display" style={styles.earnedAmount}>{money(data.total_earned_cents)}</Text>
-          {data.wallet_credited ? (
-            <View style={styles.walletNote}>
-              <Ionicons name="checkmark-circle" size={14} color={colors.secondary} />
-              <Text variant="caption" style={styles.walletNoteText}>Added to your instant wallet balance</Text>
-            </View>
-          ) : null}
-        </PartnerCard>
-
         <View style={styles.statsRow}>
           <PartnerCard variant="container" style={styles.statCard}>
             <View style={styles.statHeader}>
@@ -131,69 +69,12 @@ function SuccessScreen({
               <Text variant="caption" style={styles.statLabel}>RIDER RATING</Text>
               <Ionicons name="star" size={16} color={colors.tertiary} />
             </View>
-            <Text variant="h2">{data.rider_rating.toFixed(1)} ⭐</Text>
-            <Text variant="caption" style={{ color: colors.textMuted }}>{data.rating_comment}</Text>
+            <Text variant="h2">{typeof data.rider_rating === 'number' ? `${data.rider_rating.toFixed(1)} ⭐` : '—'}</Text>
+            <Text variant="caption" style={{ color: colors.textMuted }}>
+              {data.rating_comment ?? 'No rating yet'}
+            </Text>
           </PartnerCard>
         </View>
-
-        <PartnerCard variant="lowest" style={styles.breakdownCard}>
-          <View style={styles.breakdownHeader}>
-            <Text variant="h3">Payout Breakdown</Text>
-            <View style={styles.completedPill}>
-              <Text variant="caption" style={styles.completedPillText}>Completed</Text>
-            </View>
-          </View>
-
-          <PayoutLine
-            icon="bicycle"
-            iconColor={colors.primary}
-            iconBg={colors.primaryFixed}
-            title="Base fare"
-            subtitle={payout.base_fare_label}
-            amount={money(payout.base_fare_cents)}
-          />
-          <PayoutLine
-            icon="navigate"
-            iconColor={colors.secondary}
-            iconBg={colors.secondaryFixed}
-            title="Distance pay"
-            subtitle={payout.distance_label}
-            amount={money(payout.distance_pay_cents)}
-          />
-          {payout.surge_bonus_cents > 0 ? (
-            <PayoutLine
-              icon="flame"
-              iconColor="#E65100"
-              iconBg="#FFF0E0"
-              title="Surge peak bonus"
-              subtitle={payout.surge_zone ?? 'Peak demand zone'}
-              amount={`+${money(payout.surge_bonus_cents)}`}
-              badge={payout.surge_label ?? undefined}
-              badgeTone="surge"
-              highlight
-            />
-          ) : null}
-          {payout.tip_cents > 0 ? (
-            <PayoutLine
-              icon="heart"
-              iconColor={colors.secondary}
-              iconBg={colors.successContainer}
-              title="Customer Tip"
-              subtitle={`Direct from ${payout.tip_customer}`}
-              amount={`+${money(payout.tip_cents)}`}
-              badge="100% yours"
-              badgeTone="tip"
-            />
-          ) : null}
-
-          <View style={styles.breakdownTotal}>
-            <View>
-              <Text variant="caption" style={{ color: colors.textMuted }}>Net trip earnings</Text>
-              <Text variant="label" style={{ fontWeight: '800' }}>Total Credited</Text>
-            </View>
-            <Text variant="h2" style={{ color: colors.primary }}>{money(payout.total_cents)}</Text>
-          </View>
-        </PartnerCard>
 
         <PartnerCard variant="container" style={styles.orderBar}>
           <View style={styles.orderThumb}>
@@ -238,35 +119,24 @@ function SuccessScreen({
 
 function HandoverForm({
   handover,
-  stop,
-  otp,
-  setOtp,
-  otpVerified,
-  onVerify,
   onAddPhoto,
   onComplete,
   onReportIssue,
-  verifying,
   completing,
   uploading,
   error,
   photoName,
 }: {
   handover: DeliveryHandover;
-  stop: DeliveryStop;
-  otp: string;
-  setOtp: (v: string) => void;
-  otpVerified: boolean;
-  onVerify: () => void;
   onAddPhoto: () => void;
   onComplete: () => void;
   onReportIssue: () => void;
-  verifying: boolean;
   completing: boolean;
   uploading: boolean;
   error: string | null;
   photoName: string | null;
 }) {
+  const hasPhoto = photoName != null;
   const tabBarHeight = useTabBarHeight();
   return (
     <View style={styles.screen}>
@@ -306,60 +176,47 @@ function HandoverForm({
           </View>
         </PartnerCard>
 
-        <PartnerCard variant="lowest" style={styles.otpCard}>
-          <View style={styles.otpIconCircle}>
-            <Text style={styles.otpIconText}>123</Text>
-          </View>
-          <Text variant="h2" style={styles.otpTitle}>Ask Customer for 4-Digit Delivery OTP</Text>
-          <Text variant="caption" style={styles.otpSub}>
-            Customer received this code via SMS and app notification
-          </Text>
-          <OtpInput value={otp} onChange={setOtp} error={error && !otpVerified ? error : null} />
-          <Button
-            title="Verify OTP"
-            onPress={onVerify}
-            loading={verifying}
-            disabled={otp.length < 4 || otpVerified}
-            style={{ marginTop: spacing.lg }}
-          />
-          {otpVerified ? (
-            <View style={styles.verifiedRow}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.secondary} />
-              <Text variant="caption" style={{ color: colors.secondary, fontWeight: '700' }}>OTP verified</Text>
-            </View>
-          ) : null}
-        </PartnerCard>
-
-        <PartnerCard variant="container" style={styles.photoCard}>
+        <PartnerCard variant="lowest" style={styles.photoCard}>
           <View style={styles.photoRow}>
-            <View style={styles.photoIcon}>
-              <Ionicons name="camera-outline" size={20} color={colors.text} />
+            <View style={[styles.photoIcon, hasPhoto && styles.photoIconDone]}>
+              <Ionicons
+                name={hasPhoto ? 'checkmark-circle' : 'camera-outline'}
+                size={22}
+                color={hasPhoto ? colors.secondary : colors.text}
+              />
             </View>
             <View style={{ flex: 1 }}>
-              <Text variant="label">Take Delivery Photo</Text>
-              <Text variant="caption" style={{ color: colors.textMuted }}>
-                {photoName ? photoName : 'Recommended for doorstep leave-behind'}
+              <Text variant="label">Delivery Photo{hasPhoto ? '' : ' • Required'}</Text>
+              <Text variant="caption" style={{ color: hasPhoto ? colors.secondary : colors.textMuted }}>
+                {hasPhoto ? photoName : 'Take a photo at the doorstep as proof of delivery'}
               </Text>
             </View>
             <Pressable style={styles.addPhotoBtn} onPress={onAddPhoto} disabled={uploading}>
               <Ionicons name="camera" size={16} color={colors.text} />
-              <Text variant="caption" style={{ fontWeight: '700' }}>{uploading ? '…' : 'Add'}</Text>
+              <Text variant="caption" style={{ fontWeight: '700' }}>
+                {uploading ? '…' : hasPhoto ? 'Retake' : 'Add'}
+              </Text>
             </Pressable>
           </View>
         </PartnerCard>
 
+        {error ? <ErrorState message={error} variant="inline" /> : null}
+
         <Pressable
-          style={[styles.deliverBtn, !otpVerified && styles.deliverBtnDisabled]}
+          style={[styles.deliverBtn, !hasPhoto && styles.deliverBtnDisabled]}
           onPress={onComplete}
-          disabled={!otpVerified || completing}
+          disabled={!hasPhoto || completing}
         >
           <Ionicons name="checkmark-circle" size={22} color={colors.onPrimary} />
           <Text variant="button" style={styles.deliverBtnText}>{completing ? 'Completing…' : 'Mark as Delivered'}</Text>
         </Pressable>
+        {!hasPhoto ? (
+          <Text variant="caption" style={styles.gateHint}>Add a delivery photo to enable completion</Text>
+        ) : null}
 
         <Pressable style={styles.reportBtn} onPress={onReportIssue}>
           <Ionicons name="help-circle-outline" size={16} color={colors.textMuted} />
-          <Text variant="caption" style={styles.reportText}>Customer unable to share OTP? Report Delivery Issue</Text>
+          <Text variant="caption" style={styles.reportText}>Having trouble? Report Delivery Issue</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -372,10 +229,7 @@ export default function CompleteDelivery() {
   const feedback = useFeedback();
   const [batch, setBatch] = useState<Batch | null>(null);
   const [handover, setHandover] = useState<DeliveryHandover | null>(null);
-  const [otp, setOtp] = useState(config.defaultOtp);
-  const [otpVerified, setOtpVerified] = useState(false);
   const [photoName, setPhotoName] = useState<string | null>(null);
-  const [verifying, setVerifying] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -396,7 +250,6 @@ export default function CompleteDelivery() {
         } else if (b && activeStop) {
           const h = await api.deliveryHandover(id);
           setHandover(h);
-          setOtpVerified(h.otp_verified);
           setPhotoName(h.photo_name);
         } else if (!b) {
           try {
@@ -411,23 +264,6 @@ export default function CompleteDelivery() {
       }
     })();
   }, [deliveryId]);
-
-  const verifyOtp = async () => {
-    if (!stop || otp.length < 4) return;
-    setVerifying(true);
-    setError(null);
-    try {
-      const result = await api.verifyDeliveryOtp(stop.delivery_id, otp);
-      if (result.verified) {
-        setOtpVerified(true);
-        feedback.success(result.message, 'OTP verified');
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'OTP verification failed');
-    } finally {
-      setVerifying(false);
-    }
-  };
 
   const addPhoto = async () => {
     if (!stop) return;
@@ -459,11 +295,11 @@ export default function CompleteDelivery() {
   };
 
   const markDelivered = async () => {
-    if (!stop || !otpVerified) return;
+    if (!stop || !photoName) return;
     setCompleting(true);
     setError(null);
     try {
-      const result = await api.complete(stop.delivery_id, otp);
+      const result = await api.complete(stop.delivery_id);
       setCompletion(result);
       feedback.success(`${result.ticket_ref} delivered successfully.`, 'Delivery completed');
     } catch (err) {
@@ -510,15 +346,9 @@ export default function CompleteDelivery() {
   return (
     <HandoverForm
       handover={handover}
-      stop={stop}
-      otp={otp}
-      setOtp={setOtp}
-      otpVerified={otpVerified}
-      onVerify={verifyOtp}
       onAddPhoto={addPhoto}
       onComplete={markDelivered}
       onReportIssue={() => router.push(`/(rider)/help?order_id=${stop.order_id}` as never)}
-      verifying={verifying}
       completing={completing}
       uploading={uploading}
       error={error}
@@ -681,20 +511,6 @@ const styles = StyleSheet.create({
   instructionTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   priorityDot: { color: colors.secondary },
   priorityNote: { color: colors.secondary, fontWeight: '700' },
-  otpCard: { padding: spacing.lg, alignItems: 'center' },
-  otpIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primaryFixed,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
-  },
-  otpIconText: { color: colors.primary, fontWeight: '800', fontSize: 18 },
-  otpTitle: { textAlign: 'center', marginBottom: spacing.xs },
-  otpSub: { color: colors.textMuted, textAlign: 'center', marginBottom: spacing.lg },
-  verifiedRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm },
   photoCard: { padding: spacing.md },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   photoIcon: {
@@ -705,6 +521,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  photoIconDone: { backgroundColor: colors.successContainer },
+  gateHint: { textAlign: 'center', color: colors.textMuted, marginTop: spacing.sm },
   addPhotoBtn: {
     flexDirection: 'row',
     alignItems: 'center',

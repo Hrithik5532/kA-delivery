@@ -1,6 +1,8 @@
 """Rider wallet balances, transactions and withdrawals."""
 from __future__ import annotations
 
+import secrets
+
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
@@ -14,6 +16,7 @@ from app.models.order import Order
 from app.models.rider_wallet import RiderWallet
 from app.models.user import RiderProfile, User
 from app.models.wallet_transaction import WalletTransaction
+from app.services.order_labels import order_ref
 
 IMPS_FEE_CENTS = 500
 FILTER_MAP = {
@@ -24,10 +27,14 @@ FILTER_MAP = {
 }
 
 
-def _get_or_create_wallet(db: Session, rider_id: int) -> RiderWallet:
-    wallet = db.execute(
-        select(RiderWallet).where(RiderWallet.rider_id == rider_id)
-    ).scalar_one_or_none()
+def _get_or_create_wallet(db: Session, rider_id: int, lock: bool = False) -> RiderWallet:
+    """Fetch (or create) the rider's wallet. ``lock`` takes a row lock
+    (``SELECT ... FOR UPDATE`` on PostgreSQL) so concurrent withdrawals or
+    ledger syncs cannot both spend/credit the same balance."""
+    stmt = select(RiderWallet).where(RiderWallet.rider_id == rider_id)
+    if lock:
+        stmt = stmt.with_for_update()
+    wallet = db.execute(stmt).scalars().first()
     if wallet is None:
         wallet = RiderWallet(rider_id=rider_id)
         db.add(wallet)
@@ -53,8 +60,10 @@ def _time_label(dt: datetime) -> str:
 
 
 def _build_payout_accounts(profile: RiderProfile | None, user: User | None) -> list[dict]:
-    bank_name = profile.bank_name if profile else "HDFC Bank"
-    bank_masked = profile.bank_account_masked if profile else "8839"
+    if not profile or not profile.bank_name or not profile.bank_account_masked:
+        return []
+    bank_name = profile.bank_name
+    bank_masked = profile.bank_account_masked
     holder = user.full_name if user else "Partner"
     accounts = [
         {
@@ -63,22 +72,22 @@ def _build_payout_accounts(profile: RiderProfile | None, user: User | None) -> l
             "label": bank_name,
             "account_masked": bank_masked,
             "holder_name": holder,
-            "verified": True,
+            "verified": bool(profile.phone_verified),
             "is_primary": True,
-            "eta_label": "15–30 mins via IMPS",
+            "eta_label": "Processing",
             "icon": "business",
         },
     ]
-    if profile and profile.upi_linked:
+    if profile.upi_linked and profile.upi_id:
         accounts.append({
             "id": "upi_primary",
             "type": "upi",
-            "label": "UPI Instant",
-            "account_masked": "rahul.sharma@okhdfc",
+            "label": "UPI",
+            "account_masked": profile.upi_id,
             "holder_name": holder,
             "verified": True,
             "is_primary": False,
-            "eta_label": "Instant (under 2 mins)",
+            "eta_label": "Processing",
             "icon": "flash",
         })
     return accounts
@@ -101,6 +110,11 @@ def _txn_icon(txn_type: str) -> str:
 
 def build_wallet(db: Session, rider_id: int) -> dict:
     wallet = _get_or_create_wallet(db, rider_id)
+    # Credit delivered-order earnings into the ledger before reading balances so
+    # every caller reflects real earnings. Idempotent (keyed by ORD-<id>).
+    # Previously only the rider endpoint synced, so the admin partner view and
+    # withdrawals showed a stale ₹0 balance despite completed deliveries.
+    sync_from_deliveries(db, rider_id)
     profile = db.execute(
         select(RiderProfile).where(RiderProfile.user_id == rider_id)
     ).scalar_one_or_none()
@@ -177,7 +191,7 @@ def list_transactions(db: Session, rider_id: int, filter: str = "all") -> dict:
 def withdraw(db: Session, rider_id: int, amount_cents: int, account_id: str = "bank_primary") -> dict:
     if amount_cents <= IMPS_FEE_CENTS:
         raise HTTPException(status_code=400, detail="Amount must exceed the IMPS fee")
-    wallet = _get_or_create_wallet(db, rider_id)
+    wallet = _get_or_create_wallet(db, rider_id, lock=True)
     _recalculate_available(db, wallet)
     if amount_cents > wallet.available_balance_cents:
         raise HTTPException(status_code=400, detail="Insufficient available balance")
@@ -186,9 +200,17 @@ def withdraw(db: Session, rider_id: int, amount_cents: int, account_id: str = "b
     ).scalar_one_or_none()
     user = db.get(User, rider_id)
     accounts = _build_payout_accounts(profile, user)
-    account = next((a for a in accounts if a["id"] == account_id), accounts[0])
+    if not accounts:
+        raise HTTPException(
+            status_code=400, detail="Add your bank account details before withdrawing"
+        )
+    account = next((a for a in accounts if a["id"] == account_id), None)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Choose a valid payout account")
     dest = _account_destination_label(account)
-    ref = f"WD-{89214 + len(db.execute(select(WalletTransaction)).scalars().all())}"
+    # Unique, non-guessable-sequence reference (counting rows raced and
+    # loaded the whole ledger on every withdrawal).
+    ref = f"WD-{utcnow().strftime('%y%m%d')}-{secrets.token_hex(3).upper()}"
     from app.services.withdrawal_admin_service import _risk_for_rider
     risk_score, risk_label = _risk_for_rider(db, profile, user, amount_cents)
     txn = WalletTransaction(
@@ -220,7 +242,7 @@ def withdraw(db: Session, rider_id: int, amount_cents: int, account_id: str = "b
 
 def sync_from_deliveries(db: Session, rider_id: int) -> None:
     """Ensure order earnings appear in wallet ledger."""
-    wallet = _get_or_create_wallet(db, rider_id)
+    wallet = _get_or_create_wallet(db, rider_id, lock=True)
     deliveries = db.execute(
         select(Delivery)
         .join(Order, Delivery.order_id == Order.id)
@@ -234,7 +256,7 @@ def sync_from_deliveries(db: Session, rider_id: int) -> None:
         order = db.get(Order, d.order_id)
         if order and order.payment_method == "cod" and d.payout_status == PayoutStatus.pending:
             locked += d.earning_cents + d.tip_cents
-        ref = f"ORD-{d.order_id}"
+        ref = order_ref(order, d.order_id) if order else f"#{d.order_id}"
         existing = db.execute(
             select(WalletTransaction).where(
                 WalletTransaction.rider_id == rider_id,
@@ -252,46 +274,10 @@ def sync_from_deliveries(db: Session, rider_id: int) -> None:
             amount_cents=amount,
             status="completed",
             reference_number=ref,
-            title=f"Order DM-{8800 + d.order_id} Payout",
-            subtitle=f"Delivered • #{8800 + d.order_id}",
+            title=f"Delivery payout",
+            subtitle=f"Order {ref}",
             order_id=d.order_id,
         ))
         wallet.total_balance_cents += amount
     wallet.locked_balance_cents = locked
     _recalculate_available(db, wallet)
-
-
-def seed_wallet_demo(db: Session, rider_id: int) -> None:
-    wallet = _get_or_create_wallet(db, rider_id)
-    if db.execute(
-        select(WalletTransaction).where(
-            WalletTransaction.rider_id == rider_id,
-            WalletTransaction.reference_number == "WD-89214",
-        )
-    ).scalar_one_or_none():
-        return
-
-    now = utcnow()
-    demos = [
-        ("withdrawal", -150000, "processing", "WD-89214", "Instant Withdrawal", "Today, 05:15 PM • #WD-89214", None, now - timedelta(hours=2)),
-        ("order_earning", 18500, "completed", "ORD-42", "Order DM-8842 Payout", "Today, 08:42 PM • Delivered", 42, now - timedelta(hours=1)),
-        ("incentive", 25000, "completed", "INC-8842", "Peak Dinner Rush Incentive", "Today, 04:30 PM • 8 Orders Milestone", None, now - timedelta(hours=5)),
-        ("weekly_payout", -864000, "completed", "WD-98402", "Weekly Payout Auto-Withdrawal", "Yesterday, 11:00 AM • #WD-98402", None, now - timedelta(days=1, hours=3)),
-        ("order_earning", 14200, "completed", "ORD-19", "Order DM-8819 Payout", "Yesterday, 06:15 PM • Delivered", 19, now - timedelta(days=1, hours=8)),
-    ]
-    for txn_type, amount, status, ref, title, subtitle, order_id, created in demos:
-        db.add(WalletTransaction(
-            rider_id=rider_id,
-            txn_type=txn_type,
-            amount_cents=amount,
-            status=status,
-            reference_number=ref,
-            title=title,
-            subtitle=subtitle,
-            order_id=order_id,
-            created_at=created,
-            updated_at=created,
-        ))
-    wallet.locked_balance_cents = 42000
-    wallet.total_balance_cents = 345000
-    wallet.available_balance_cents = 303000

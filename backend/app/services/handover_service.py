@@ -94,6 +94,11 @@ def _photo_dir(delivery_id: int) -> str:
 
 
 def save_delivery_photo(delivery: Delivery, upload: UploadFile) -> dict:
+    from app.models.enums import DeliveryStatus
+
+    # Proof of delivery is frozen once the stop is complete.
+    if delivery.status not in (DeliveryStatus.picked_up, DeliveryStatus.delivering):
+        raise HTTPException(status_code=409, detail="Photo can only be added while delivering")
     content_type = upload.content_type or "application/octet-stream"
     if content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=415, detail="Upload a JPG, PNG, WEBP or HEIC image")
@@ -117,6 +122,12 @@ def save_delivery_photo(delivery: Delivery, upload: UploadFile) -> dict:
         "has_photo": True,
         "photo_name": delivery.delivery_photo_name,
     }
+
+
+def assert_photo_ready(delivery: Delivery) -> None:
+    """Proof of delivery is the uploaded doorstep photo; it is required to complete."""
+    if not delivery.delivery_photo_path:
+        raise HTTPException(status_code=400, detail="Add a delivery photo first")
 
 
 def assert_otp_ready(delivery: Delivery, order: Order, otp: str | None) -> None:

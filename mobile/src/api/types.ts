@@ -137,14 +137,14 @@ export interface RiderOrderItem {
 export interface ActiveDeliveryMeta {
   phase: string;
   status_label: string;
-  eta_minutes: number;
-  distance_remaining_km: number;
-  route_label: string;
-  deliver_by_label: string;
+  eta_minutes: number | null;
+  distance_remaining_km: number | null;
+  route_label: string | null;
+  deliver_by_label: string | null;
   rider_lat: number | null;
   rider_lng: number | null;
   arrived_at_drop: boolean;
-  helper_text: string;
+  helper_text: string | null;
 }
 
 export interface DeliveryStop {
@@ -155,8 +155,8 @@ export interface DeliveryStop {
   sequence: number;
   customer_name: string;
   address_text: string;
-  address_lat: number;
-  address_lng: number;
+  address_lat: number | null;
+  address_lng: number | null;
   total_cents: number;
   payment_method?: string;
   items?: RiderOrderItem[];
@@ -224,8 +224,8 @@ export interface PickupDetail {
   gps_validation_note: string;
   rider_lat: number | null;
   rider_lng: number | null;
-  drop_lat: number;
-  drop_lng: number;
+  drop_lat: number | null;
+  drop_lng: number | null;
 }
 
 export interface DeliveryHandover {
@@ -289,8 +289,8 @@ export interface DeliveryCompletion {
   active_minutes: number;
   estimated_minutes: number;
   minutes_faster: number;
-  rider_rating: number;
-  rating_comment: string;
+  rider_rating?: number | null;
+  rating_comment?: string | null;
   distance_km: number;
   payout: PayoutBreakdown;
   pending_stops: number;
@@ -629,7 +629,7 @@ export interface RiderProfileDetail {
   email: string | null;
   phone: string | null;
   partner_code: string;
-  rating: number;
+  rating: number | null;
   trip_count: number;
   is_online: boolean;
   approval_status: ApprovalStatus;
@@ -654,4 +654,67 @@ export interface RiderProfileDetail {
   documents_verified_count: number;
   documents_total_count: number;
   documents_valid_until: string;
+}
+
+/** A daily working slot the partner can pick (times are business-local). */
+export interface RiderSlot {
+  id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  selected: boolean;
+  is_running: boolean;
+  next_start_at: string;
+  next_end_at: string;
+  is_full: boolean;
+}
+
+export interface RiderSlots {
+  /** False when ops have no active slots: partners can go online any time. */
+  enforced: boolean;
+  timezone: string;
+  slots: RiderSlot[];
+  current_slot_id: number | null;
+  current_slot_ends_at: string | null;
+  next_slot_id: number | null;
+  next_slot_starts_at: string | null;
+  can_go_online_now: boolean;
+}
+
+export type SalaryStatus = 'draft' | 'approved' | 'paid' | 'cancelled';
+
+/** A monthly salary invoice (only approved/paid ones reach the app). */
+export interface SalaryInvoice {
+  id: number;
+  invoice_number: string;
+  rider_name: string;
+  partner_code: string | null;
+  bank_name: string;
+  bank_account_masked: string;
+  ifsc_code: string;
+  upi_id: string | null;
+  period: string;
+  period_label: string;
+  base_salary_cents: number;
+  additions_cents: number;
+  deductions_cents: number;
+  net_cents: number;
+  deliveries_count: number;
+  days_active: number;
+  status: SalaryStatus;
+  notes: string;
+  payment_reference: string | null;
+  approved_at: string | null;
+  paid_at: string | null;
+}
+
+export interface RiderSalary {
+  monthly_salary_cents: number | null;
+  current_period: string;
+  current_period_label: string;
+  current_month_deliveries: number;
+  current_month_days_active: number;
+  total_paid_cents: number;
+  invoices: SalaryInvoice[];
 }

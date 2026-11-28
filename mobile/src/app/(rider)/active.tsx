@@ -17,9 +17,10 @@ import { FlowScreenHeader } from '@/components/ui/FlowScreenHeader';
 import { Text } from '@/components/ui/Text';
 import { config } from '@/config';
 import { useDirectionsRoute } from '@/hooks/useDirectionsRoute';
+import { openDirections } from '@/lib/navigation';
 import { useRiderPosition } from '@/hooks/useRiderPosition';
 import { useTabBarHeight } from '@/hooks/useTabBarStyle';
-import { colors, spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 export default function ActiveDelivery() {
   const tabBarHeight = useTabBarHeight();
@@ -62,7 +63,10 @@ export default function ActiveDelivery() {
     [batch],
   );
   const dropPoint = useMemo(
-    () => (nextStop ? { lat: nextStop.address_lat, lng: nextStop.address_lng } : null),
+    () =>
+      nextStop?.address_lat != null && nextStop.address_lng != null
+        ? { lat: nextStop.address_lat, lng: nextStop.address_lng }
+        : null,
     [nextStop],
   );
   const liveRiderPosition = useRiderPosition();
@@ -83,19 +87,29 @@ export default function ActiveDelivery() {
   const { route } = useDirectionsRoute(routeOrigin, dropPoint, !!routeOrigin && !!dropPoint);
 
   const markers: TrackerMarker[] = useMemo(() => {
-    if (!batch || !dropPoint || !nextStop) return [];
+    if (!batch || !nextStop) return [];
     const list: TrackerMarker[] = [];
     if (riderPoint) {
       list.push({ lat: riderPoint.lat, lng: riderPoint.lng, label: 'You', kind: 'rider' });
     }
-    const dropLabel = nextStop.address_title || nextStop.customer_name || 'Drop-off';
-    list.push({ lat: dropPoint.lat, lng: dropPoint.lng, label: dropLabel, kind: 'dropoff' });
+    if (dropPoint) {
+      const dropLabel = nextStop.address_title || nextStop.customer_name || 'Drop-off';
+      list.push({ lat: dropPoint.lat, lng: dropPoint.lng, label: dropLabel, kind: 'dropoff' });
+    }
     return list;
   }, [batch, dropPoint, nextStop, riderPoint]);
 
-  const etaLabel = active
-    ? `${active.eta_minutes} mins (${active.distance_remaining_km.toFixed(1)} km remaining)`
-    : 'Calculating route…';
+  const etaLabel = useMemo(() => {
+    if (!active) return 'Calculating route…';
+    const parts: string[] = [];
+    if (active.eta_minutes != null) parts.push(`${active.eta_minutes} mins`);
+    if (active.distance_remaining_km != null) {
+      parts.push(`${active.distance_remaining_km.toFixed(1)} km remaining`);
+    }
+    if (parts.length === 0) return 'Calculating route…';
+    // "12 mins (3.4 km remaining)" when both; otherwise whichever is present.
+    return parts.length === 2 ? `${parts[0]} (${parts[1]})` : parts[0];
+  }, [active]);
 
   const handleArrived = async (stop: DeliveryStop) => {
     setBusy(true);
@@ -115,6 +129,15 @@ export default function ActiveDelivery() {
       return;
     }
     void Linking.openURL(`tel:${phone.replace(/\s/g, '')}`);
+  };
+
+  const navigateToDrop = async () => {
+    if (!dropPoint) {
+      feedback.info('Drop-off location is not available yet.', 'Unavailable');
+      return;
+    }
+    const opened = await openDirections(dropPoint);
+    if (!opened) feedback.error('Could not open Google Maps for navigation.');
   };
 
   if (loading && !batch) return <Loading label="Loading delivery…" />;
@@ -218,6 +241,11 @@ export default function ActiveDelivery() {
             </View>
           </PartnerCard>
 
+          <Pressable style={styles.navigateBtn} onPress={navigateToDrop}>
+            <Ionicons name="navigate" size={18} color={colors.primary} />
+            <Text variant="button" style={styles.navigateText}>Navigate in Google Maps</Text>
+          </Pressable>
+
           <Button
             title="✓  Arrived at Drop Location"
             onPress={() => handleArrived(nextStop)}
@@ -292,6 +320,13 @@ const styles = StyleSheet.create({
     width: 8, height: 8, borderRadius: 4, backgroundColor: '#E53935',
     borderWidth: 1.5, borderColor: colors.surface,
   },
+  navigateBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    marginTop: spacing.sm, paddingVertical: spacing.md,
+    borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.primary,
+    backgroundColor: colors.primaryFixed,
+  },
+  navigateText: { color: colors.primary, fontWeight: '700' },
   arriveBtn: { marginTop: spacing.sm },
   helperText: { textAlign: 'center', color: colors.textMuted, marginTop: -spacing.sm },
 });

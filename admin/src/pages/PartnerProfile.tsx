@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { parseApiDate } from '@/lib/time';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
-import type { AdminDeliveryRow, PartnerDeliveryRow, PartnerDetail, PartnerUpdatePayload } from '@/api/types';
+import type { AdminDeliveryRow, PartnerDeliveryRow, PartnerDetail } from '@/api/types';
 import { formatGmv, money } from '@/theme';
+import { PartnerSlotsPanel } from '@/pages/ShiftSlots';
+import { LoginCodeCard } from '@/components/LoginCodeCard';
 import { AsyncView, ReasonModal } from '@/ui/kit';
 
-type Tab = 'overview' | 'active' | 'history' | 'bank' | 'wallet';
-type WalletFilter = 'all' | 'credits' | 'withdrawals' | 'bonuses';
+type Tab = 'overview' | 'active' | 'history' | 'bank';
 type ActionModal = 'suspend' | 'reactivate' | null;
 
 function tabList(partner: PartnerDetail) {
@@ -15,8 +17,7 @@ function tabList(partner: PartnerDetail) {
     { id: 'overview' as Tab, label: 'Overview & KYC' },
     { id: 'active' as Tab, label: `Active Orders (${activeCount})` },
     { id: 'history' as Tab, label: `Delivery History (${partner.total_deliveries})` },
-    { id: 'bank' as Tab, label: 'Bank & Payout Details' },
-    { id: 'wallet' as Tab, label: 'Wallet Ledger' },
+    { id: 'bank' as Tab, label: 'Salary & Bank' },
   ];
 }
 
@@ -32,44 +33,7 @@ function partnerId(p: PartnerDetail) {
 
 function fmt(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function filterWalletTxns(txns: PartnerDetail['wallet_transactions'], filter: WalletFilter) {
-  if (filter === 'all') return txns;
-  if (filter === 'withdrawals') return txns.filter((t) => ['withdrawal', 'weekly_payout'].includes(t.txn_type));
-  if (filter === 'bonuses') return txns.filter((t) => t.txn_type === 'incentive');
-  return txns.filter((t) => t.txn_type === 'order_earning' || (t.amount_cents > 0 && !['withdrawal', 'weekly_payout', 'incentive'].includes(t.txn_type)));
-}
-
-function txnStatusPill(status: string) {
-  if (status === 'completed') return <span className="pp-status-success">Success</span>;
-  if (status === 'processing') return <span className="pp-status-warn">Processing</span>;
-  return <span className="pp-status-warn">{status}</span>;
-}
-
-function WalletTxnTable({ txns, emptyLabel }: { txns: PartnerDetail['wallet_transactions']; emptyLabel?: string }) {
-  return (
-    <table className="partners-table compact pp-table">
-      <thead>
-        <tr><th>TXN Reference</th><th>Type &amp; Description</th><th>Timestamp</th><th>Amount</th><th>Balance Post</th><th>Status</th></tr>
-      </thead>
-      <tbody>
-        {txns.length === 0 ? (
-          <tr><td colSpan={6} className="muted">{emptyLabel ?? 'No transactions.'}</td></tr>
-        ) : txns.map((row) => (
-          <tr key={row.id}>
-            <td className="wd-ref">{row.reference_number}</td>
-            <td><div>{row.title}</div><div className="muted">{row.txn_type.replace(/_/g, ' ')}</div></td>
-            <td className="muted">{fmt(row.created_at)}</td>
-            <td className={row.amount_cents >= 0 ? 'pp-txn-pos' : 'pp-txn-neg'}>{row.amount_cents >= 0 ? '+' : '−'}{money(Math.abs(row.amount_cents))}</td>
-            <td>{row.balance_after_cents != null ? money(row.balance_after_cents) : '—'}</td>
-            <td>{txnStatusPill(row.status)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  return parseApiDate(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 type DeliveryRow = PartnerDeliveryRow | AdminDeliveryRow;
@@ -79,13 +43,13 @@ function isFullDeliveryRow(d: DeliveryRow): d is PartnerDeliveryRow {
 }
 
 function deliveryStatusPill(status: string) {
-  if (status === 'delivered') return <span className="pp-status-delivered">Delivered (On-Time)</span>;
+  if (status === 'delivered') return <span className="pp-status-delivered">Delivered</span>;
   return <span className="pp-status-warn">{status.replace(/_/g, ' ')}</span>;
 }
 
 function DeliveryTable({ rows, showAll, compact, showViewAll }: { rows: DeliveryRow[]; showAll?: boolean; compact?: boolean; showViewAll?: number }) {
   const data = showAll ? rows : rows.slice(0, 5);
-  const cols = compact ? 5 : 6;
+  const cols = compact ? 4 : 5;
   return (
     <>
       <table className="partners-table compact pp-table">
@@ -95,7 +59,6 @@ function DeliveryTable({ rows, showAll, compact, showViewAll }: { rows: Delivery
             <th>Merchant / Kitchen</th>
             {!compact && <th>Drop Landmark</th>}
             <th>Time &amp; Dist</th>
-            <th>Partner Earning</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -111,7 +74,6 @@ function DeliveryTable({ rows, showAll, compact, showViewAll }: { rows: Delivery
                 {fmt(d.delivered_at ?? d.created_at)}
                 {isFullDeliveryRow(d) && d.distance_km != null ? <div>{d.distance_km.toFixed(1)} km</div> : null}
               </td>
-              <td><strong>{money(d.earning_cents)}</strong></td>
               <td>{deliveryStatusPill(d.status)}</td>
             </tr>
           ))}
@@ -158,59 +120,6 @@ function ActiveOrderCard({ order, full }: { order: NonNullable<PartnerDetail['ac
   );
 }
 
-function EditBankForm({ partner, inline, onClose, onSave }: { partner: PartnerDetail; inline?: boolean; onClose: () => void; onSave: (body: PartnerUpdatePayload) => Promise<void> }) {
-  const [bankName, setBankName] = useState(partner.bank_name);
-  const [accountMasked, setAccountMasked] = useState(partner.bank_account_masked);
-  const [upiLinked, setUpiLinked] = useState(partner.upi_linked);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const submit = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      await onSave({ bank_name: bankName, bank_account_masked: accountMasked, upi_linked: upiLinked });
-      onClose();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Update failed');
-      setBusy(false);
-    }
-  };
-
-  const fields = (
-    <>
-      {err && <div className="card profile-alert" style={{ marginBottom: 12 }}>{err}</div>}
-      <div className="field"><label>Bank name</label><input value={bankName} onChange={(e) => setBankName(e.target.value)} /></div>
-      <div className="field"><label>Account (masked)</label><input value={accountMasked} onChange={(e) => setAccountMasked(e.target.value)} placeholder="Last 4 digits" /></div>
-      <div className="field"><label>IFSC (display only)</label><input value={partner.ifsc_code} disabled /></div>
-      <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <input type="checkbox" id="upi-linked" checked={upiLinked} onChange={(e) => setUpiLinked(e.target.checked)} />
-        <label htmlFor="upi-linked" style={{ margin: 0 }}>UPI linked</label>
-      </div>
-      {partner.upi_id && <div className="muted" style={{ marginBottom: 12 }}>UPI ID: {partner.upi_id}</div>}
-      <div className="row">
-        <button type="button" className="btn secondary sm" onClick={onClose} disabled={busy}>Cancel</button>
-        <button type="button" className="btn primary sm" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save Bank Details'}</button>
-      </div>
-    </>
-  );
-
-  if (inline) return <div className="pp-bank-form">{fields}</div>;
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Edit Bank &amp; UPI</h3>
-        {fields}
-      </div>
-    </div>
-  );
-}
-
-function EditBankModal(props: { partner: PartnerDetail; onClose: () => void; onSave: (body: PartnerUpdatePayload) => Promise<void> }) {
-  return <EditBankForm {...props} />;
-}
-
 export function PartnerProfile() {
   const { riderId } = useParams();
   const navigate = useNavigate();
@@ -219,11 +128,7 @@ export function PartnerProfile() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
-  const [walletFilter, setWalletFilter] = useState<WalletFilter>('all');
-  const [overviewTxnFilter, setOverviewTxnFilter] = useState<WalletFilter>('all');
   const [actionModal, setActionModal] = useState<ActionModal>(null);
-  const [editBankOpen, setEditBankOpen] = useState(false);
-  const [bankInlineEdit, setBankInlineEdit] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteBusy, setNoteBusy] = useState(false);
 
@@ -239,10 +144,6 @@ export function PartnerProfile() {
     try { setP(await fn()); } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); throw e; }
   };
 
-  const savePartner = async (body: PartnerUpdatePayload) => {
-    await act(() => api.updatePartner(id, body));
-  };
-
   const saveNote = async () => {
     const text = noteText.trim();
     if (!text) return;
@@ -255,14 +156,11 @@ export function PartnerProfile() {
     }
   };
 
-  const filteredWalletTxns = useMemo(() => filterWalletTxns(p?.wallet_transactions ?? [], walletFilter), [p, walletFilter]);
-  const overviewTxns = useMemo(() => filterWalletTxns((p?.wallet_transactions ?? []).slice(0, 8), overviewTxnFilter), [p, overviewTxnFilter]);
 
   return (
     <div className="content pp-page">
       <AsyncView data={p} loading={loading} error={error} onRetry={load} isEmpty={(d) => !d}>
         {(partner) => {
-          const pendingWithdrawal = partner.wallet_transactions.find((x) => x.txn_type === 'withdrawal' && x.status === 'processing');
           return (
           <>
             <div className="pp-breadcrumb">
@@ -281,7 +179,7 @@ export function PartnerProfile() {
               </div>
               <div className="pp-title-actions">
                 <button type="button" className="btn secondary sm" onClick={() => navigate(`/partners/${id}/edit`)}>Edit Partner</button>
-                <button type="button" className="btn primary sm" onClick={() => setTab('wallet')}>Adjust Wallet</button>
+                <button type="button" className="btn primary sm" onClick={() => navigate('/salary')}>Salary invoices</button>
                 {partner.account_active ? (
                   <button type="button" className="btn outline-danger sm" onClick={() => setActionModal('suspend')}>Suspend</button>
                 ) : (
@@ -308,7 +206,7 @@ export function PartnerProfile() {
               <div className="pp-summary-metrics">
                 <div className="pp-metric"><div className="pp-metric-label">Lifetime Trips</div><div className="pp-metric-value">{partner.total_deliveries}</div></div>
                 <div className="pp-metric"><div className="pp-metric-label">Cancel Rate</div><div className="pp-metric-value">{partner.cancel_rate_pct}%</div></div>
-                <div className="pp-metric"><div className="pp-metric-label">Total Earned</div><div className="pp-metric-value purple">{formatGmv(partner.total_earned_cents)}</div></div>
+                <div className="pp-metric"><div className="pp-metric-label">Monthly Salary</div><div className="pp-metric-value purple">{partner.monthly_salary_cents != null ? money(partner.monthly_salary_cents) : 'Not set'}</div></div>
                 <div className="pp-metric"><div className="pp-metric-label">Current Order</div><div className="pp-metric-value sm">{partner.active_order_id ? `#DM-${partner.active_order_id}` : '—'}</div></div>
               </div>
             </div>
@@ -339,52 +237,14 @@ export function PartnerProfile() {
                         <div className="pp-field"><span className="pp-field-label">Assigned Delivery Cluster</span><span className="pp-field-value">{partner.operating_hub || 'Unassigned'}</span></div>
                         <div className="pp-field"><span className="pp-field-label">Fleet Tier</span><span className="pp-field-value">{partner.fleet_tier || '—'}</span></div>
                         <div className="pp-field"><span className="pp-field-label">Vehicle</span><span className="pp-field-value">{partner.vehicle_model || partner.vehicle_type} · {partner.vehicle_number}</span></div>
-                        <div className="pp-field"><span className="pp-field-label">Shift Preference</span><span className="pp-field-value">{partner.shift_preference}</span></div>
-                        <div className="pp-field"><span className="pp-field-label">Max Active Orders Cap</span><span className="pp-field-value">{partner.max_active_orders}</span></div>
-                        <div className="pp-field"><span className="pp-field-label">License / RC</span><span className="pp-field-value">{partner.license_number} · {partner.rc_status}</span></div>
+                        <div className="pp-field"><span className="pp-field-label">Working Slots</span><span className="pp-field-value">{partner.shift_preference ?? 'None assigned'}</span></div>
+                        <div className="pp-field"><span className="pp-field-label">Driving Licence</span><span className="pp-field-value">{partner.license_number || '—'}{partner.rc_status ? ` · RC ${partner.rc_status}` : ''}</span></div>
                       </div>
                     </div>
-                    <div className="pp-section-card">
-                      <div className="pp-section-head">
-                        <h3>Registered Bank &amp; Payout Node</h3>
-                        <button type="button" className="btn secondary sm" onClick={() => setTab('bank')}>Edit Bank / UPI</button>
-                      </div>
-                      <div className="pp-bank-split">
-                        <div className="pp-bank-panel">
-                          <div className="pp-section-head" style={{ marginBottom: 8 }}>
-                            <h4>Bank Details</h4>
-                            <span className="pp-kyc-ok">Penny-Drop Verified</span>
-                          </div>
-                          <div className="pp-field-value">{partner.bank_name || '—'}</div>
-                          <div className="muted">Account •••• {partner.bank_account_masked}</div>
-                          <div className="muted">IFSC {partner.ifsc_code}</div>
-                          <div className="muted" style={{ marginTop: 8 }}>{partner.full_name} — 100% KYC Match</div>
-                        </div>
-                        <div className="pp-bank-panel">
-                          <div className="pp-section-head" style={{ marginBottom: 8 }}>
-                            <h4>UPI Details</h4>
-                            {partner.upi_linked && <span className="pp-kyc-ok">NPCI Active</span>}
-                          </div>
-                          <div className="pp-field-value">{partner.upi_id ?? '—'}</div>
-                          <div className="muted">IMPS / UPI 2.0 Auto</div>
-                          <div className="muted" style={{ marginTop: 8 }}>Daily Limit: {money(partner.daily_cashout_limit_cents)}</div>
-                        </div>
-                      </div>
-                    </div>
+                    <SalaryBankCard partner={partner} onEdit={() => navigate(`/partners/${id}/edit`)} />
                     <div className="pp-section-card">
                       <div className="pp-section-head"><h3>Recent Delivery Assignments</h3><button type="button" className="link-btn" onClick={() => setTab('history')}>View All {partner.total_deliveries} Orders</button></div>
                       <DeliveryTable rows={partner.delivery_history.length ? partner.delivery_history : partner.recent_deliveries} showViewAll={partner.total_deliveries} />
-                    </div>
-                    <div className="pp-section-card">
-                      <div className="wd-card-head">
-                        <h3>Recent Wallet Transactions &amp; Payouts</h3>
-                      </div>
-                      <div className="pp-filter-chips">
-                        {(['all', 'credits', 'withdrawals', 'bonuses'] as WalletFilter[]).map((f) => (
-                          <button key={f} type="button" className={`chip ${overviewTxnFilter === f ? 'active' : ''}`} onClick={() => setOverviewTxnFilter(f)}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
-                        ))}
-                      </div>
-                      <WalletTxnTable txns={overviewTxns} emptyLabel="No matching transactions." />
                     </div>
                   </>
                 )}
@@ -404,79 +264,14 @@ export function PartnerProfile() {
                   </div>
                 )}
 
-                {tab === 'bank' && (
-                  <div className="pp-section-card">
-                    <div className="wd-card-head">
-                      <h3>Registered Bank &amp; Payout Node</h3>
-                      {!bankInlineEdit && (
-                        <button type="button" className="btn secondary sm" onClick={() => setBankInlineEdit(true)}>Edit Bank / UPI</button>
-                      )}
-                    </div>
-                    {bankInlineEdit ? (
-                      <EditBankForm partner={partner} inline onClose={() => setBankInlineEdit(false)} onSave={savePartner} />
-                    ) : (
-                      <>
-                        <div className="pp-bank-split">
-                          <div className="pp-bank-panel">
-                            <div className="pp-section-head" style={{ marginBottom: 8 }}>
-                              <h4>Bank Details</h4>
-                              <span className="pp-kyc-ok">Penny-Drop Verified</span>
-                            </div>
-                            <div className="pp-field-value">{partner.bank_name || '—'}</div>
-                            <div className="muted">Account •••• {partner.bank_account_masked}</div>
-                            <div className="muted">IFSC {partner.ifsc_code}</div>
-                            <div className="muted" style={{ marginTop: 8 }}>{partner.full_name} — 100% KYC Match</div>
-                          </div>
-                          <div className="pp-bank-panel">
-                            <div className="pp-section-head" style={{ marginBottom: 8 }}>
-                              <h4>UPI Details</h4>
-                              {partner.upi_linked && <span className="pp-kyc-ok">NPCI Active</span>}
-                            </div>
-                            <div className="pp-field-value">{partner.upi_id ?? '—'}</div>
-                            <div className="muted">IMPS / UPI 2.0 Auto</div>
-                            <div className="muted" style={{ marginTop: 8 }}>Daily Limit: {money(partner.daily_cashout_limit_cents)}</div>
-                          </div>
-                        </div>
-                        <div className="pp-security-note">Bank or UPI changes require dual verification (SMS OTP + Supervisor Approval) before going live.</div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {tab === 'wallet' && (
-                  <div className="pp-section-card">
-                    <div className="wd-card-head">
-                      <h3>Wallet Transactions</h3>
-                      <span className="muted">{filteredWalletTxns.length} entries</span>
-                    </div>
-                    <div className="pp-filter-chips">
-                      {(['all', 'credits', 'withdrawals', 'bonuses'] as WalletFilter[]).map((f) => (
-                        <button key={f} type="button" className={`chip ${walletFilter === f ? 'active' : ''}`} onClick={() => setWalletFilter(f)}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
-                      ))}
-                    </div>
-                    <WalletTxnTable txns={filteredWalletTxns} />
-                  </div>
-                )}
+                {tab === 'bank' && <SalaryBankCard partner={partner} onEdit={() => navigate(`/partners/${id}/edit`)} />}
               </div>
 
               <aside className="pp-sidebar">
-                <div className="pp-wallet-card">
-                  <h3>Partner Wallet Balance</h3>
-                  <div className="pp-wallet-total">{money(partner.wallet_total_cents)}</div>
-                  <div className="pp-wallet-split">
-                    <div><span>Available to Withdraw</span><strong>{money(partner.wallet_available_cents)}</strong></div>
-                    <div><span>Escrow / COD Held</span><strong>{money(partner.wallet_locked_cents)}</strong></div>
-                  </div>
-                  {(partner.payout_pending || pendingWithdrawal) && (
-                    <div className="pp-pending-alert">
-                      Pending Cashout Request: {pendingWithdrawal ? money(Math.abs(pendingWithdrawal.amount_cents)) : 'In queue'} — awaiting approval
-                    </div>
-                  )}
-                  <button type="button" className="btn secondary sm" style={{ width: '100%', marginTop: 12, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>Issue Manual Adjustment / Bonus</button>
-                </div>
-
+                <LoginCodeCard riderId={partner.rider_id} name={partner.full_name} suspended={!partner.account_active} />
+                <PartnerSlotsPanel riderId={partner.rider_id} />
                 <div className="pp-section-card">
-                  <div className="pp-section-head"><h3>Compliance &amp; KYC</h3><span className="pp-kyc-ok">Verified</span></div>
+                  <div className="pp-section-head"><h3>Compliance &amp; KYC</h3>{partner.kyc_items.every((k) => k.ok) && <span className="pp-kyc-ok">Verified</span>}</div>
                   <div className="pp-kyc-list">
                     {partner.kyc_items.map((k) => (
                       <div key={k.label} className="pp-kyc-row">
@@ -484,18 +279,8 @@ export function PartnerProfile() {
                         <span className={k.ok ? 'pp-kyc-ok' : 'pp-status-warn'}>{k.ok ? 'Verified' : k.status}</span>
                       </div>
                     ))}
-                    <div className="pp-kyc-row"><span>Background Verification</span><span className="pp-kyc-ok">Active</span></div>
                   </div>
-                  <button type="button" className="btn secondary sm" style={{ width: '100%', marginTop: 12 }}>Upload Renewed Documents</button>
-                </div>
-
-                <div className="pp-section-card">
-                  <h3>Issued Assets &amp; Kit</h3>
-                  <div className="pp-assets-list">
-                    <div className="pp-asset-row"><span>Delivery Bag (Thermal)</span><span className="pp-kyc-ok">Issued</span></div>
-                    <div className="pp-asset-row"><span>Raincoat</span><span className="pp-kyc-ok">Issued</span></div>
-                    <div className="pp-asset-row"><span>DigiMess T-Shirt (×2)</span><span className="pp-kyc-ok">Issued</span></div>
-                  </div>
+                  <button type="button" className="btn secondary sm" style={{ width: '100%', marginTop: 12 }} onClick={() => navigate('/verification')}>Review documents</button>
                 </div>
 
                 <div className="pp-section-card">
@@ -535,15 +320,29 @@ export function PartnerProfile() {
         }}
       </AsyncView>
 
-      {editBankOpen && p && (
-        <EditBankModal partner={p} onClose={() => setEditBankOpen(false)} onSave={savePartner} />
-      )}
       {actionModal === 'suspend' && (
         <ReasonModal title="Suspend partner" confirmLabel="Suspend" onConfirm={(r) => act(() => api.suspend(id, r))} onClose={() => setActionModal(null)} />
       )}
       {actionModal === 'reactivate' && (
         <ReasonModal title="Reactivate partner" confirmLabel="Reactivate" onConfirm={(r) => act(() => api.reactivate(id, r))} onClose={() => setActionModal(null)} />
       )}
+    </div>
+  );
+}
+
+function SalaryBankCard({ partner, onEdit }: { partner: PartnerDetail; onEdit: () => void }) {
+  return (
+    <div className="pp-section-card">
+      <div className="pp-section-head">
+        <h3>Salary &amp; Bank</h3>
+        <button type="button" className="btn secondary sm" onClick={onEdit}>Edit</button>
+      </div>
+      <div className="pp-field-grid">
+        <div className="pp-field"><span className="pp-field-label">Monthly Salary</span><span className="pp-field-value purple">{partner.monthly_salary_cents != null ? money(partner.monthly_salary_cents) : 'Not set'}</span></div>
+        <div className="pp-field"><span className="pp-field-label">Bank</span><span className="pp-field-value">{partner.bank_name || '—'}{partner.bank_account_masked ? ` ···· ${partner.bank_account_masked}` : ''}</span></div>
+        <div className="pp-field"><span className="pp-field-label">IFSC</span><span className="pp-field-value">{partner.ifsc_code || '—'}</span></div>
+        <div className="pp-field"><span className="pp-field-label">UPI</span><span className="pp-field-value">{partner.upi_id || '—'}</span></div>
+      </div>
     </div>
   );
 }

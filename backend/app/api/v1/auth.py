@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.config import settings
 from app.database import get_db
 from app.models.enums import UserRole
 from app.models.user import User
@@ -48,15 +49,6 @@ def rider_register(data: RiderRegister, db: Session = Depends(get_db)) -> Token:
     except AuthError as exc:
         raise _bad_request(exc)
     return auth_service.issue_token(user, UserRole.rider)
-
-
-@router.post("/rider/otp/request", response_model=OtpRequestResponse)
-def rider_otp_request(data: OtpRequest, db: Session = Depends(get_db)) -> OtpRequestResponse:
-    try:
-        code = auth_service.request_rider_otp(db, data.phone)
-    except AuthError as exc:
-        raise _bad_request(exc)
-    return OtpRequestResponse(sent=True, dev_code=code)
 
 
 @router.post("/rider/otp/verify", response_model=Token)
@@ -106,7 +98,9 @@ def customer_otp_request(data: OtpRequest, db: Session = Depends(get_db)) -> Otp
     except AuthError as exc:
         raise _bad_request(exc)
     # In dev we surface the code so the flow is testable without an SMS gateway.
-    return OtpRequestResponse(sent=True, dev_code=code)
+    return OtpRequestResponse(
+        sent=True, dev_code=code if settings.expose_login_otp else None
+    )
 
 
 @router.post("/customer/otp/verify", response_model=Token)

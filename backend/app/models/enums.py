@@ -87,6 +87,40 @@ class OfferStatus(str, enum.Enum):
     expired = "expired"
 
 
+class FulfillmentType(str, enum.Enum):
+    """Who delivers an order: an in-platform (KA) rider or an external courier."""
+
+    internal = "internal"
+    external = "external"
+
+
+class ExternalProvider(str, enum.Enum):
+    """External delivery platform an order may be handed off to."""
+
+    zomato = "zomato"
+    swiggy = "swiggy"
+    porter = "porter"
+    rapido = "rapido"
+    uber = "uber"
+    other = "other"
+
+
+class ExternalDeliveryStatus(str, enum.Enum):
+    """Manually-tracked status of an order fulfilled by an external platform."""
+
+    assigned = "assigned"
+    picked_up = "picked_up"
+    delivered = "delivered"
+    cancelled = "cancelled"
+
+
+class OrderSource(str, enum.Enum):
+    """Where an order originated."""
+
+    customer = "customer"
+    booking_app = "booking_app"
+
+
 class PaymentStatus(str, enum.Enum):
     pending = "pending"
     paid = "paid"

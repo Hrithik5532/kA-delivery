@@ -1,11 +1,14 @@
 """Shared FastAPI dependencies: auth, current user, and role guards."""
 from __future__ import annotations
 
+import secrets
+
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.security import decode_access_token
 from app.database import get_db
 from app.models.enums import AdminRole, ApprovalStatus, UserRole
@@ -93,6 +96,35 @@ def require_admin_permission(*allowed: AdminRole):
         )
 
     return _guard
+
+
+def require_integration_key(
+    x_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> None:
+    """Server-to-server guard for the external-partner API.
+
+    Accepts any active key issued from the admin console, or the static
+    ``INTEGRATION_API_KEY`` from the environment. With neither configured the
+    API is disabled (503), so it is never open by default.
+    """
+    from app.services import partner_key_service
+
+    env_key = settings.integration_api_key
+    if not env_key and not partner_key_service.has_active_keys(db):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Partner API is not configured",
+        )
+    if x_api_key:
+        if env_key and secrets.compare_digest(x_api_key, env_key):
+            return
+        if partner_key_service.verify(db, x_api_key) is not None:
+            return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing API key",
+    )
 
 
 # Convenience singletons.

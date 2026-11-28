@@ -25,6 +25,22 @@ export interface Me {
   admin_role: string | null;
 }
 
+export interface PartnerApiKey {
+  id: number;
+  name: string;
+  key_prefix: string;
+  is_active: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  rotated_at: string | null;
+  revoked_at: string | null;
+}
+
+/** Only returned by create/rotate; the secret can't be fetched again. */
+export interface PartnerApiKeySecret extends PartnerApiKey {
+  api_key: string;
+}
+
 export interface Page<T> {
   items: T[];
   total: number;
@@ -99,7 +115,6 @@ export interface OverviewMetrics {
   live_kitchen: number;
   live_picked_up: number;
   live_en_route: number;
-  platform_revenue_cents: number;
 }
 
 export interface FleetLeader {
@@ -128,19 +143,18 @@ export interface PartnerListItem {
   current_batch_id: number | null;
   total_deliveries: number;
   partner_code: string | null;
-  rating: number;
+  rating: number | null;
   vehicle_type: string;
   vehicle_model: string;
   vehicle_number: string;
   operating_hub: string;
-  wallet_balance_cents: number;
-  week_earnings_cents: number;
-  payout_pending: boolean;
+  monthly_salary_cents: number | null;
   active_order_id: number | null;
   last_lat: number | null;
   last_lng: number | null;
   location_updated_at: string | null;
   location_is_stale: boolean;
+  last_seen_at: string | null;
 }
 
 export interface AdminDeliveryRow {
@@ -152,18 +166,6 @@ export interface AdminDeliveryRow {
   earning_cents: number;
   delivered_at: string | null;
   created_at: string;
-}
-
-export interface PartnerWalletTxn {
-  id: number;
-  reference_number: string;
-  txn_type: string;
-  title: string;
-  subtitle: string;
-  amount_cents: number;
-  status: string;
-  created_at: string;
-  balance_after_cents: number | null;
 }
 
 export interface PartnerActiveOrder {
@@ -189,30 +191,23 @@ export interface PartnerAdminNote { id: number; text: string; author_id: number 
 export interface PartnerDetail extends PartnerListItem {
   license_number: string;
   correction_reason: string | null;
-  fleet_tier: string;
+  fleet_tier: string | null;
   bank_name: string;
   bank_account_masked: string;
   upi_linked: boolean;
   phone_verified: boolean;
-  rc_status: string;
-  documents_valid_until: string;
+  rc_status: string | null;
+  documents_valid_until: string | null;
   emergency_contact: string;
   contact_email: string | null;
-  vehicle_fuel_type: string;
-  shift_preference: string;
-  max_active_orders: number;
-  total_earned_cents: number;
+  vehicle_fuel_type: string | null;
+  shift_preference: string | null;
   cancel_rate_pct: number;
   tenure_months: number;
-  wallet_locked_cents: number;
-  wallet_available_cents: number;
-  wallet_total_cents: number;
   upi_id: string | null;
   ifsc_code: string;
-  daily_cashout_limit_cents: number;
   documents: RiderDocument[];
   kyc_items: PartnerKycItem[];
-  wallet_transactions: PartnerWalletTxn[];
   active_order: PartnerActiveOrder | null;
   delivery_history: PartnerDeliveryRow[];
   admin_notes: PartnerAdminNote[];
@@ -222,6 +217,8 @@ export interface PartnerDetail extends PartnerListItem {
 }
 
 export interface PartnerUpdatePayload {
+  /** 0 clears it. */
+  monthly_salary_cents?: number | null;
   full_name?: string;
   phone?: string;
   email?: string;
@@ -241,6 +238,8 @@ export interface PartnerUpdatePayload {
 
 export interface OrderSummary {
   order_id: number;
+  external_order_ref: string | null;
+  external_order_status: string | null;
   is_test: boolean;
   status: string;
   mess_name: string | null;
@@ -249,12 +248,146 @@ export interface OrderSummary {
   delivery_status: string | null;
   total_cents: number;
   created_at: string;
+  fulfillment_type: string;
+  external_provider: string | null;
+}
+
+export interface OrderMessInfo {
+  mess_id: number | null;
+  name: string;
+  address_text: string;
+  lat: number | null;
+  lng: number | null;
+  contact_phone: string;
+}
+
+export interface OrderCustomerInfo {
+  name: string;
+  phone: string | null;
+  dropoff_text: string;
+  dropoff_lat: number | null;
+  dropoff_lng: number | null;
+  note: string;
+}
+
+export interface OrderItemLine {
+  name: string;
+  unit_price_cents: number;
+  quantity: number;
+  line_total_cents: number;
+  food_type: string | null;
+}
+
+export interface OrderAssignment {
+  rider_id: number | null;
+  rider_name: string | null;
+  rider_phone: string | null;
+  delivery_status: string | null;
+  batch_status: string | null;
+  offer_pending: boolean;
+  offered_rider_id: number | null;
 }
 
 export interface OrderDetail extends OrderSummary {
-  dropoff_text: string;
+  dropoff_text: string | null;
+  external_error: string | null;
+  placed_at: string | null;
+  subtotal_cents: number;
+  delivery_fee_cents: number;
+  tax_cents: number;
+  amount_to_collect_cents: number | null;
+  currency: string;
+  payment_status: string;
+  payment_method: string;
+  external_reference: string | null;
+  external_note: string | null;
+  external_status: string | null;
+  external_rider: ExternalRiderInfo | null;
+  source: string;
+  mess: OrderMessInfo | null;
+  customer: OrderCustomerInfo | null;
+  items: OrderItemLine[];
+  assignment: OrderAssignment | null;
   timeline: AuditEvent[];
   issues: DeliveryIssue[];
+}
+
+export interface CandidateRider {
+  rider_id: number;
+  full_name: string;
+  phone: string | null;
+  is_online: boolean;
+  rating: number | null;
+  vehicle_type: string;
+  distance_km: number | null;
+  location_is_stale: boolean;
+  active_order_id: number | null;
+  active_mess_id: number | null;
+  available: boolean;
+  unavailable_reason: string | null;
+}
+
+export type ExternalProvider = 'porter' | 'rapido' | 'uber' | 'zomato' | 'swiggy' | 'other';
+export type ExternalDeliveryStatus = 'assigned' | 'picked_up' | 'delivered' | 'cancelled';
+
+export interface AssignOrderPayload {
+  mode: 'internal' | 'external';
+  rider_id?: number;
+  provider?: ExternalProvider;
+  reference?: string;
+  note?: string;
+  // Courier details when booked on an external portal (shown in the consumer app).
+  rider_name?: string;
+  rider_phone?: string;
+  vehicle_type?: string;
+  vehicle_number?: string;
+  tracking_url?: string;
+}
+
+export interface ExternalRiderInfo {
+  name: string | null;
+  phone: string | null;
+  vehicle_type: string | null;
+  vehicle_number: string | null;
+  tracking_url: string | null;
+}
+
+export interface ShiftSlot {
+  id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  is_active: boolean;
+  max_riders: number | null;
+  sort_order: number;
+  rider_count: number;
+}
+
+export type ShiftSlotPayload = Partial<Pick<ShiftSlot, 'name' | 'start_time' | 'end_time' | 'is_active' | 'max_riders' | 'sort_order'>>;
+
+export interface RiderSlot {
+  id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  selected: boolean;
+  is_running: boolean;
+  next_start_at: string;
+  next_end_at: string;
+  is_full: boolean;
+}
+
+export interface RiderSlots {
+  enforced: boolean;
+  timezone: string;
+  slots: RiderSlot[];
+  current_slot_id: number | null;
+  current_slot_ends_at: string | null;
+  next_slot_id: number | null;
+  next_slot_starts_at: string | null;
+  can_go_online_now: boolean;
 }
 
 export interface RiderMarker {
@@ -275,139 +408,71 @@ export interface ActiveDelivery {
   delivery_status: string | null;
   rider_id: number | null;
   rider_name: string | null;
-  pickup_lat: number;
-  pickup_lng: number;
+  pickup_lat: number | null;
+  pickup_lng: number | null;
   pickup_label: string | null;
-  dropoff_lat: number;
-  dropoff_lng: number;
-  dropoff_text: string;
+  dropoff_lat: number | null;
+  dropoff_lng: number | null;
+  dropoff_text: string | null;
   rider_marker: RiderMarker | null;
   eta_minutes: number | null;
   distance_km: number | null;
 }
 
-export interface TestDelivery {
-  order_id: number;
-  is_test: boolean;
-  status: string;
-  pickup_label: string;
-  pickup_lat: number;
-  pickup_lng: number;
-  dropoff_label: string;
-  dropoff_lat: number;
-  dropoff_lng: number;
-  test_note: string | null;
-  rider_id: number | null;
-  rider_name: string | null;
-  delivery_status: string | null;
-  otp_code: string | null;
-  created_at: string;
+
+export interface PartnerLoginCode {
+  code: string;
+  phone: string;
+  expires_at: string;
+  valid_minutes: number;
 }
 
+export type SalaryStatus = 'draft' | 'approved' | 'paid' | 'cancelled';
 
-export interface WithdrawalRequest {
+export interface SalaryInvoice {
   id: number;
-  reference_number: string;
-  payout_cycle: string;
-  created_at: string;
+  invoice_number: string;
   rider_id: number;
   rider_name: string;
+  rider_phone: string | null;
   partner_code: string | null;
-  fleet_tier: string;
-  rating: number;
-  amount_cents: number;
-  fee_cents: number;
-  net_amount_cents: number;
-  wallet_balance_cents: number;
-  post_cashout_balance_cents: number;
   bank_name: string;
   bank_account_masked: string;
   ifsc_code: string;
-  account_holder: string;
-  bank_verified: boolean;
-  risk_score: number;
-  risk_label: string;
-  risk_note: string;
-  status: 'pending_review' | 'approved' | 'rejected';
-  admin_note: string | null;
-  requires_dual_signoff: boolean;
-  auto_disburse_eligible: boolean;
-  reviewed_at: string | null;
+  upi_id: string | null;
+  period: string;
+  period_label: string;
+  base_salary_cents: number;
+  additions_cents: number;
+  deductions_cents: number;
+  net_cents: number;
+  deliveries_count: number;
+  days_active: number;
+  status: SalaryStatus;
+  notes: string;
+  payment_reference: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  paid_at: string | null;
+  cancelled_reason: string | null;
+  created_at: string;
 }
 
-export interface WithdrawalSummary {
-  pending_count: number;
-  pending_amount_cents: number;
-  approved_today_count: number;
-  approved_today_amount_cents: number;
-  rejected_count: number;
-  rejected_amount_cents: number;
-  escrow_reserve_cents: number;
-  liquidity_ratio: number;
-  gateway_status: string;
-  imps_success_rate: number;
-  imps_latency_seconds: number;
-  daily_cap_used_pct: number;
-  tds_ytd_cents: number;
-  tds_today_cents: number;
-  fraud_rules_triggered: number;
-  total_count: number;
+export interface SalaryList {
+  period: string | null;
+  items: SalaryInvoice[];
+  totals: Partial<Record<SalaryStatus, { count: number; net_cents: number }>>;
 }
 
-export interface WithdrawalDetail extends WithdrawalRequest {
-  settlement_gateway: string;
-  escrow_lock_state: string;
-  disbursal_target_seconds: number;
-  priority_queue: boolean;
-  partner: {
-    rider_id: number;
-    full_name: string;
-    partner_code: string | null;
-    operating_hub: string;
-    rating: number;
-    total_deliveries: number;
-    active_since: string | null;
-    fleet_tier: string;
-    phone: string | null;
-    kyc_compliance_pct: number;
-    kyc_items: { label: string; value: string; ok: boolean }[];
-    documents: { doc_type: string; status: string; original_name: string }[];
-  };
-  wallet: {
-    gross_total_cents: number;
-    escrow_locked_cents: number;
-    available_cashout_cents: number;
-    post_withdrawal_cents: number;
-    daily_limit_cents: number;
-    daily_limit_remaining_cents: number;
-    daily_utilization_pct: number;
-  };
-  bank: {
-    bank_name: string;
-    branch: string;
-    account_masked: string;
-    ifsc_code: string;
-    account_holder: string;
-    penny_drop_verified: boolean;
-    name_match_pct: number;
-  };
-  earning_components: {
-    reference: string;
-    title: string;
-    category: string;
-    timestamp: string;
-    status: string;
-    amount_cents: number;
-  }[];
-  payout_history: {
-    reference_number: string;
-    created_at: string;
-    amount_cents: number;
-    mode: string;
-    utr: string;
-    status: string;
-  }[];
-  risk: { score: number; label: string; checks: { label: string; ok: boolean }[] };
-  gateway: { status: string; imps_latency_seconds: number; daily_reserve_remaining_pct: number; tds_cents: number };
-  reject_reasons: string[];
+export interface SalaryGenerateResult {
+  created: SalaryInvoice[];
+  skipped: { rider_id: number; name: string; reason: string }[];
+}
+
+export interface SalaryInvoiceUpdate {
+  base_salary_cents?: number;
+  additions_cents?: number;
+  deductions_cents?: number;
+  notes?: string;
+  refresh_activity?: boolean;
 }

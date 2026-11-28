@@ -52,8 +52,13 @@ export function GoogleMapView({
       map.fitBounds(bounds, 48);
       return;
     }
-    if (center) {
-      map.panTo({ lat: center[0], lng: center[1] });
+    // Single point (e.g. pickup known but no drop-off coords): centering alone
+    // leaves the map at the wide regional default zoom, so the lone pin is a
+    // speck. Pan to it AND zoom in to a street-level view.
+    const single = fitPoints?.[0] ?? center;
+    if (single) {
+      map.panTo({ lat: single[0], lng: single[1] });
+      map.setZoom(15);
     }
   };
 

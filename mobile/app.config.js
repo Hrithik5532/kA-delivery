@@ -23,6 +23,15 @@ module.exports = () => {
           },
         ],
         [
+          'expo-image-picker',
+          {
+            cameraPermission:
+              'Khana Delivery uses your camera to take a proof-of-delivery photo at the doorstep.',
+            photosPermission:
+              'Khana Delivery uses your photos to attach a proof-of-delivery image.',
+          },
+        ],
+        [
           'expo-location',
           {
             locationWhenInUsePermission:

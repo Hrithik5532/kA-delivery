@@ -285,14 +285,14 @@ def complete(
     rider: User = Depends(require_approved_rider),
     db: Session = Depends(get_db),
 ):
-    """Complete a single stop using the customer's OTP as server-verified proof."""
+    """Complete a single stop using the uploaded doorstep photo as proof of delivery."""
     delivery = _owned_delivery(db, delivery_id, rider)
     order = db.get(Order, delivery.order_id)
 
     if delivery.status not in (DeliveryStatus.picked_up, DeliveryStatus.delivering):
         raise HTTPException(status_code=409, detail="Delivery is not out for delivery")
 
-    handover_service.assert_otp_ready(delivery, order, data.otp)
+    handover_service.assert_photo_ready(delivery)
 
     now = utcnow()
     try:

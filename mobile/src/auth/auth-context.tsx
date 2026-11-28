@@ -32,9 +32,7 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   isApproved: boolean;
   refreshSession: () => Promise<void>;
-  loginRider: (email: string, password: string) => Promise<void>;
   loginRiderOtp: (phone: string, code: string) => Promise<void>;
-  requestRiderOtp: (phone: string) => Promise<string | null>;
   registerRider: (body: {
     email: string;
     password: string;
@@ -164,16 +162,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loginRider = useCallback(
-    async (email: string, password: string) => persist(await api.loginRider(email, password)),
-    [persist]
-  );
-
-  const requestRiderOtp = useCallback(async (phone: string) => {
-    const resp = await api.requestRiderOtp(phone);
-    return resp.dev_code ?? null;
-  }, []);
-
   const loginRiderOtp = useCallback(
     async (phone: string, code: string) => persist(await api.verifyRiderOtp(phone, code)),
     [persist]
@@ -199,13 +187,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...state,
       isApproved: state.approvalStatus === 'approved',
       refreshSession,
-      loginRider,
       loginRiderOtp,
-      requestRiderOtp,
       registerRider,
       logout,
     }),
-    [state, refreshSession, loginRider, loginRiderOtp, requestRiderOtp, registerRider, logout]
+    [state, refreshSession, loginRiderOtp, registerRider, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

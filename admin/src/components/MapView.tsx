@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { hasGoogleMaps } from '@/config';
 import { GoogleMapView } from './GoogleMapView';
+import { LeafletMapView } from './LeafletMapView';
 
 export interface MapMarker {
   id?: string;
@@ -12,9 +14,9 @@ export interface MapMarker {
 }
 
 /**
- * Google-only map surface. There is intentionally no OpenStreetMap/Leaflet
- * fallback — when Google can't load, GoogleMapView renders an explicit error
- * state so the map provider is unambiguous everywhere in the admin.
+ * Google Maps when a key is configured; OpenStreetMap (Leaflet) when there is
+ * no key or Google fails to load (bad key, API not enabled, blocked referrer),
+ * so ops always have a working map.
  */
 export function MapView({
   markers,
@@ -35,15 +37,11 @@ export function MapView({
   fitPoints?: [number, number][];
   fitKey?: string | null;
 }) {
-  if (!hasGoogleMaps) {
-    return (
-      <div className="dm-map dm-map-fallback" style={{ height }}>
-        <p>Google Maps is not configured.</p>
-        <p className="dm-map-error-detail">
-          Set <code>VITE_GOOGLE_MAPS_KEY</code> and enable the Maps JavaScript API for this site.
-        </p>
-      </div>
-    );
+  const [googleFailed, setGoogleFailed] = useState(false);
+  const props = { markers, center, zoom, height, onPick, route, fitPoints, fitKey };
+
+  if (!hasGoogleMaps || googleFailed) {
+    return <LeafletMapView {...props} />;
   }
 
   return (
@@ -56,6 +54,7 @@ export function MapView({
       route={route}
       fitPoints={fitPoints}
       fitKey={fitKey}
+      onFailed={() => setGoogleFailed(true)}
     />
   );
 }

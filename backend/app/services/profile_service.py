@@ -45,21 +45,27 @@ def build_profile(db: Session, user: User) -> dict:
     earnings = earnings_service.summary_for_rider(db, user.id)
     docs = document_service.list_for_rider(db, user.id)
     verified = [d for d in docs if d.status == DocumentStatus.accepted]
-    total_docs = len(docs) if docs else 4
-    verified_count = len(verified) if verified else (4 if profile.approval_status.value == "approved" else 0)
+    total_docs = max(len(docs), 4)  # 4 required document types
+    verified_count = len(verified)
+
+    # Several profile columns are nullable in the DB (unset for freshly
+    # registered riders), but RiderProfileDetailOut requires non-null strings.
+    # Coalesce to safe defaults so the endpoint never 500s on a sparse profile.
+    vehicle_type = profile.vehicle_type or "bike"
+    valid_until = profile.documents_valid_until or "—"
 
     if verified_count >= total_docs and total_docs > 0:
-        doc_summary = f"All {total_docs} verified • Valid till {profile.documents_valid_until}"
+        doc_summary = f"All {total_docs} verified • Valid till {valid_until}"
     elif verified_count > 0:
-        doc_summary = f"{verified_count}/{total_docs} verified • Valid till {profile.documents_valid_until}"
+        doc_summary = f"{verified_count}/{total_docs} verified • Valid till {valid_until}"
     else:
-        doc_summary = f"Upload documents • Target {profile.documents_valid_until}"
+        doc_summary = f"Upload documents • Target {valid_until}"
 
     bank_line = ""
     if profile.bank_name:
         bank_line = f"{profile.bank_name} •• {profile.bank_account_masked}"
-        if profile.upi_linked:
-            bank_line += " (Instant UPI linked)"
+        if profile.upi_id:
+            bank_line += f" · UPI {profile.upi_id}"
 
     return {
         "id": user.id,
@@ -67,29 +73,29 @@ def build_profile(db: Session, user: User) -> dict:
         "email": profile.contact_email or user.email,
         "phone": user.phone,
         "partner_code": partner_code,
-        "rating": round(float(profile.rating or 5.0), 2),
+        "rating": round(float(profile.rating), 2) if profile.rating is not None else None,
         "trip_count": earnings.summary.total_deliveries,
         "is_online": profile.is_online,
         "approval_status": profile.approval_status,
         "phone_verified": profile.phone_verified,
-        "operating_hub": profile.operating_hub,
-        "fleet_tier": profile.fleet_tier,
-        "surge_priority_pct": profile.surge_priority_pct,
-        "vehicle_type": profile.vehicle_type,
-        "vehicle_type_label": _vehicle_label(profile.vehicle_type),
-        "vehicle_model": profile.vehicle_model or profile.vehicle_type.title(),
-        "vehicle_number": profile.vehicle_number,
-        "vehicle_fuel_type": profile.vehicle_fuel_type,
-        "vehicle_cargo_type": profile.vehicle_cargo_type,
-        "rc_status": profile.rc_status,
-        "rc_status_label": _rc_label(profile.rc_status),
-        "bank_name": profile.bank_name,
-        "bank_account_masked": profile.bank_account_masked,
+        "operating_hub": profile.operating_hub or "—",
+        "fleet_tier": profile.fleet_tier or "standard",
+        "surge_priority_pct": profile.surge_priority_pct or 0,
+        "vehicle_type": vehicle_type,
+        "vehicle_type_label": _vehicle_label(vehicle_type),
+        "vehicle_model": profile.vehicle_model or vehicle_type.title(),
+        "vehicle_number": profile.vehicle_number or "—",
+        "vehicle_fuel_type": profile.vehicle_fuel_type or "—",
+        "vehicle_cargo_type": profile.vehicle_cargo_type or "—",
+        "rc_status": profile.rc_status or "pending",
+        "rc_status_label": _rc_label(profile.rc_status or "pending"),
+        "bank_name": profile.bank_name or "",
+        "bank_account_masked": profile.bank_account_masked or "",
         "bank_summary": bank_line,
-        "upi_linked": profile.upi_linked,
-        "app_language": profile.app_language,
+        "upi_linked": bool(profile.upi_linked),
+        "app_language": profile.app_language or "en",
         "documents_summary": doc_summary,
         "documents_verified_count": verified_count,
         "documents_total_count": total_docs,
-        "documents_valid_until": profile.documents_valid_until,
+        "documents_valid_until": valid_until,
     }

@@ -68,7 +68,7 @@ class RiderProfileDetailOut(BaseModel):
     email: str | None = None
     phone: str | None = None
     partner_code: str
-    rating: float
+    rating: float | None = None
     trip_count: int
     is_online: bool
     approval_status: ApprovalStatus

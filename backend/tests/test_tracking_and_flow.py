@@ -9,6 +9,7 @@ from tests.helpers import (
     now_iso,
     place_order,
     rider_online,
+    upload_delivery_photo,
 )
 
 
@@ -48,7 +49,7 @@ def test_location_allowed_while_online_without_delivery(client, rider_token):
 
 def test_rider_cannot_complete_another_riders_delivery(client, rider_token):
     ids = drive_to_out_for_delivery(client, rider_token)
-    combo_rider = login(client, "rider", "combo@digimess.app")
+    combo_rider = login(client, "rider", "rider2@digimess.app")
     resp = client.post(
         f"/api/v1/deliveries/{ids['delivery_id']}/complete",
         headers=_auth(combo_rider),
@@ -57,24 +58,28 @@ def test_rider_cannot_complete_another_riders_delivery(client, rider_token):
     assert resp.status_code == 403
 
 
-def test_complete_requires_correct_otp(client, rider_token):
+def test_complete_requires_delivery_photo(client, rider_token):
     ids = drive_to_out_for_delivery(client, rider_token)
+    # Proof of delivery is the doorstep photo; completing without one is rejected.
     bad = client.post(
         f"/api/v1/deliveries/{ids['delivery_id']}/complete",
         headers=_auth(rider_token),
-        json={"otp": "0000000"},
+        json={},
     )
     assert bad.status_code == 400
+    assert "photo" in bad.json()["detail"].lower()
 
 
 def test_end_to_end_delivery_and_earnings(client, rider_token):
     ids = drive_to_out_for_delivery(client, rider_token)
+    photo = upload_delivery_photo(client, rider_token, ids["delivery_id"])
+    assert photo.status_code == 200, photo.text
     done = client.post(
         f"/api/v1/deliveries/{ids['delivery_id']}/complete",
         headers=_auth(rider_token),
-        json={"otp": ids["otp"]},
+        json={},
     )
-    assert done.status_code == 200
+    assert done.status_code == 200, done.text
     assert done.json()["status"] == "delivered"
 
     earnings = client.get("/api/v1/rider/earnings", headers=_auth(rider_token)).json()
@@ -85,7 +90,7 @@ def test_end_to_end_delivery_and_earnings(client, rider_token):
 def test_dispatch_retries_when_rider_goes_online(client, rider_token):
     resp = client.post("/api/v1/rider/offline", headers=_auth(rider_token))
     assert resp.status_code == 204, resp.text
-    combo_token = login(client, "rider", "combo@digimess.app")
+    combo_token = login(client, "rider", "rider2@digimess.app")
     resp = client.post("/api/v1/rider/offline", headers=_auth(combo_token))
     assert resp.status_code == 204, resp.text
 
